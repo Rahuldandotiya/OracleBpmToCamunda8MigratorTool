@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic sample -->
+<application xmlns="http://wadl.dev.java.net/2009/02" xmlns:soa="http://www.oracle.com/soa/rest">
+  <resources base="https://payments.example.com/v2">
+    <resource path="/payments">
+      <method name="POST" soa:wsdlOperation="pay">
+        <request><representation mediaType="application/json"/></request>
+        <response status="201"><representation mediaType="application/json"/></response>
+      </method>
+    </resource>
+  </resources>
+</application>

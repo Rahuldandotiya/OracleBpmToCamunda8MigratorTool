@@ -14,3 +14,10 @@ camunda8-output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Drop folders: your own models stay local
+knowledge-base/*
+!knowledge-base/README.md
+processToMigrate/*
+!processToMigrate/README.md
+samples/demo/camunda8-output/

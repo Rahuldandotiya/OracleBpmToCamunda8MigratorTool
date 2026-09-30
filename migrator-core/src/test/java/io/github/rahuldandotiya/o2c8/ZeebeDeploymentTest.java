@@ -47,6 +47,27 @@ class ZeebeDeploymentTest {
   }
 
   @Test
+  void migratedDemoWithKnowledgeBaseAndCompositeDeploys() throws Exception {
+    var kbDrop = io.github.rahuldandotiya.o2c8.project.DropFolder.load(
+        Path.of("..", "samples", "demo", "knowledge-base"));
+    var drop = io.github.rahuldandotiya.o2c8.project.DropFolder.load(
+        Path.of("..", "samples", "demo", "processToMigrate"));
+    try {
+      var kb = new io.github.rahuldandotiya.o2c8.knowledge.KnowledgeBaseBuilder(camundaUserTasks).build(kbDrop);
+      for (var f : drop.processes()) {
+        String xml = camundaUserTasks.convert(f, drop.compositeFor(f), kb).bpmnXml();
+        DeploymentEvent d = client.newDeployResourceCommand()
+            .addResourceStringUtf8(xml, f.path().getFileName().toString())
+            .send().join();
+        assertEquals(1, d.getProcesses().size(), f.displayPath() + " should deploy");
+      }
+    } finally {
+      kbDrop.close();
+      drop.close();
+    }
+  }
+
+  @Test
   void fnolRunsEndToEnd() throws Exception {
     deploy("FNOLProcess.bpmn");
     ProcessInstanceEvent pi = client.newCreateInstanceCommand()

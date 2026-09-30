@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example "finished" Camunda 8 model (synthetic): the converter output after the edits a migration team made. Used as a knowledge-base pair. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" exporter="Oracle BPM to Camunda 8 Migrator" exporterVersion="0.2.0" id="Definitions_ClaimIntakeProcess" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.6.0" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_ClaimIntakeProcess">
+    <bpmn:participant id="Participant_ClaimIntakeProcess" name="ClaimIntakeProcess" processRef="ClaimIntakeProcess"/>
+  </bpmn:collaboration>
+  <bpmn:process id="ClaimIntakeProcess" isExecutable="true" name="ClaimIntakeProcess">
+    <bpmn:laneSet id="LaneSet_ClaimIntakeProcess">
+      <bpmn:lane id="lane0" name="AutomaticHandler">
+        <bpmn:flowNodeRef>EVT_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ACT_GetPolicy</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ACT_CheckFraud</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>GTW_Suspicious</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ACT_SaveClaim</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EVT_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="lane1" name="CSR">
+        <bpmn:flowNodeRef>ACT_ReviewClaim</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="EVT_Start" name="Start">
+      <bpmn:extensionElements>
+        <zeebe:ioMapping>
+          <zeebe:output source="=ClaimIntakeProcessIN" target="claim"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>sf1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="ACT_GetPolicy" name="GetPolicy">
+      <bpmn:documentation>Oracle reference PolicyService (binding.rest), operation getPolicy. Apply the 'REST Outbound Connector' template in Camunda Modeler to edit it in form view.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition retries="3" type="io.camunda:http-json:1"/>
+        <zeebe:ioMapping>
+          <zeebe:input source="bearer" target="authentication.type"/>
+          <zeebe:input source="{{secrets.POLICY_API_TOKEN}}" target="authentication.token"/>
+          <zeebe:input source="={&quot;X-Correlation-Id&quot;: string(claim.id)}" target="headers"/>
+          <zeebe:input source="GET" target="method"/>
+          <zeebe:input source="=&quot;{{secrets.POLICY_SERVICE_URL}}/policies/&quot; + string(claim.policyNumber)" target="url"/>
+          <zeebe:input source="20" target="connectionTimeoutInSeconds"/>
+        </zeebe:ioMapping>
+        <zeebe:taskHeaders>
+          <zeebe:header key="resultExpression" value="={policy: response.body}"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sf1</bpmn:incoming>
+      <bpmn:outgoing>sf2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="ACT_CheckFraud" name="CheckFraud">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition retries="5" type="claims.soap-fraud-service-check-fraud"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="endpoint" value="{{secrets.FRAUD_SERVICE_URL}}"/>
+          <zeebe:header key="operation" value="checkFraud"/>
+          <zeebe:header key="soapAction" value="http://example.com/fraud/checkFraud"/>
+          <zeebe:header key="targetNamespace" value="http://example.com/fraud"/>
+          <zeebe:header key="soapVersion" value="1.1"/>
+          <zeebe:header key="timeout" value="PT30S"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=claim" target="claim"/>
+          <zeebe:output source="=result" target="fraudResult"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sf2</bpmn:incoming>
+      <bpmn:outgoing>sf3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway default="sf5" id="GTW_Suspicious" name="Suspicious?">
+      <bpmn:incoming>sf3</bpmn:incoming>
+      <bpmn:outgoing>sf4</bpmn:outgoing>
+      <bpmn:outgoing>sf5</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="ACT_ReviewClaim" name="ReviewClaim">
+      <bpmn:documentation>Oracle human task: ReviewClaimTask (http://xmlns.oracle.com/ClaimApps/ReviewClaimTask)</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask/>
+        <zeebe:formDefinition formId="review-claim-form"/>
+        <zeebe:assignmentDefinition candidateGroups="claims-csr"/>
+        <zeebe:priorityDefinition priority="75"/>
+        <zeebe:ioMapping>
+          <zeebe:input source="=claim" target="claim"/>
+          <zeebe:output source="=outcome" target="reviewOutcome"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sf4</bpmn:incoming>
+      <bpmn:outgoing>sf6</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="ACT_SaveClaim" name="SaveClaim">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="claims.db-claim-db-insert"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="adapter" value="db"/>
+          <zeebe:header key="connectionFactory" value="eis/DB/ClaimsDS"/>
+          <zeebe:header key="DescriptorName" value="ClaimDB.Claim"/>
+          <zeebe:header key="DmlType" value="insert"/>
+          <zeebe:header key="MappingsMetaDataURL" value="ClaimDB-or-mappings.xml"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=claim" target="claim"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sf5</bpmn:incoming>
+      <bpmn:incoming>sf6</bpmn:incoming>
+      <bpmn:outgoing>sf7</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="EVT_End" name="End">
+      <bpmn:incoming>sf7</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="sf1" sourceRef="EVT_Start" targetRef="ACT_GetPolicy"/>
+    <bpmn:sequenceFlow id="sf2" sourceRef="ACT_GetPolicy" targetRef="ACT_CheckFraud"/>
+    <bpmn:sequenceFlow id="sf3" sourceRef="ACT_CheckFraud" targetRef="GTW_Suspicious"/>
+    <bpmn:sequenceFlow id="sf4" sourceRef="GTW_Suspicious" targetRef="ACT_ReviewClaim">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=fraudResult.score &gt; 70</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="sf5" sourceRef="GTW_Suspicious" targetRef="ACT_SaveClaim"/>
+    <bpmn:sequenceFlow id="sf6" sourceRef="ACT_ReviewClaim" targetRef="ACT_SaveClaim"/>
+    <bpmn:sequenceFlow id="sf7" sourceRef="ACT_SaveClaim" targetRef="EVT_End"/>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_ClaimIntakeProcess">
+    <bpmndi:BPMNPlane bpmnElement="Collaboration_ClaimIntakeProcess" id="BPMNPlane_ClaimIntakeProcess">
+      <bpmndi:BPMNShape bpmnElement="Participant_ClaimIntakeProcess" id="Participant_ClaimIntakeProcess_di" isHorizontal="true">
+        <dc:Bounds height="400" width="958" x="120" y="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="lane0" id="lane0_di" isHorizontal="true">
+        <dc:Bounds height="200" width="928" x="150" y="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="lane1" id="lane1_di" isHorizontal="true">
+        <dc:Bounds height="200" width="928" x="150" y="280"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="EVT_Start" id="EVT_Start_di">
+        <dc:Bounds height="36" width="36" x="212" y="162"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="ACT_GetPolicy" id="ACT_GetPolicy_di">
+        <dc:Bounds height="80" width="100" x="330" y="140"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="ACT_CheckFraud" id="ACT_CheckFraud_di">
+        <dc:Bounds height="80" width="100" x="490" y="140"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="GTW_Suspicious" id="GTW_Suspicious_di">
+        <dc:Bounds height="50" width="50" x="655" y="155"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="ACT_ReviewClaim" id="ACT_ReviewClaim_di">
+        <dc:Bounds height="80" width="100" x="630" y="340"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="ACT_SaveClaim" id="ACT_SaveClaim_di">
+        <dc:Bounds height="80" width="100" x="790" y="140"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="EVT_End" id="EVT_End_di">
+        <dc:Bounds height="36" width="36" x="982" y="162"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge bpmnElement="sf1" id="sf1_di">
+        <di:waypoint x="248" y="180"/>
+        <di:waypoint x="330" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf2" id="sf2_di">
+        <di:waypoint x="430" y="180"/>
+        <di:waypoint x="490" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf3" id="sf3_di">
+        <di:waypoint x="590" y="180"/>
+        <di:waypoint x="655" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf4" id="sf4_di">
+        <di:waypoint x="680" y="205"/>
+        <di:waypoint x="680" y="272.5"/>
+        <di:waypoint x="680" y="272.5"/>
+        <di:waypoint x="680" y="340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf5" id="sf5_di">
+        <di:waypoint x="705" y="180"/>
+        <di:waypoint x="790" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf6" id="sf6_di">
+        <di:waypoint x="730" y="380"/>
+        <di:waypoint x="760" y="380"/>
+        <di:waypoint x="760" y="180"/>
+        <di:waypoint x="790" y="180"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf7" id="sf7_di">
+        <di:waypoint x="890" y="180"/>
+        <di:waypoint x="982" y="180"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

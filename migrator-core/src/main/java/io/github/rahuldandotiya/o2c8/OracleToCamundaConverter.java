@@ -2,11 +2,16 @@ package io.github.rahuldandotiya.o2c8;
 
 import static io.github.rahuldandotiya.o2c8.xml.XmlUtils.children;
 
+import io.github.rahuldandotiya.o2c8.composite.Composite;
+import io.github.rahuldandotiya.o2c8.composite.ServiceCallResolver;
 import io.github.rahuldandotiya.o2c8.convert.ConversionContext;
 import io.github.rahuldandotiya.o2c8.convert.ConversionContextAccess;
 import io.github.rahuldandotiya.o2c8.convert.ElementConverters;
 import io.github.rahuldandotiya.o2c8.convert.ProcessConverter;
+import io.github.rahuldandotiya.o2c8.knowledge.KnowledgeApplier;
+import io.github.rahuldandotiya.o2c8.knowledge.KnowledgeBase;
 import io.github.rahuldandotiya.o2c8.layout.DiagramGenerator;
+import io.github.rahuldandotiya.o2c8.project.ProcessFile;
 import io.github.rahuldandotiya.o2c8.report.ConversionReport;
 import io.github.rahuldandotiya.o2c8.report.ConversionReport.Level;
 import io.github.rahuldandotiya.o2c8.validate.Camunda8ModelValidator;
@@ -15,6 +20,7 @@ import io.github.rahuldandotiya.o2c8.xml.XmlUtils;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
@@ -29,7 +35,7 @@ import org.w3c.dom.Element;
 public final class OracleToCamundaConverter {
 
   public static final String EXPORTER = "Oracle BPM to Camunda 8 Migrator";
-  public static final String EXPORTER_VERSION = "0.1.0";
+  public static final String EXPORTER_VERSION = "0.2.0";
 
   private final ConverterOptions options;
   private final ElementConverters converters;
@@ -55,7 +61,25 @@ public final class OracleToCamundaConverter {
     return convert(XmlUtils.parse(content), sourceName);
   }
 
+  /** Converts a file from a drop folder, using its composite (if any) and the knowledge base. */
+  public ConversionResult convert(ProcessFile file, Optional<Composite> composite, KnowledgeBase kb)
+      throws IOException {
+    return convert(XmlUtils.parse(file.path()), file.displayPath(), composite, file.path(), kb);
+  }
+
   public ConversionResult convert(Document source, String sourceName) {
+    return convert(source, sourceName, Optional.empty(), null, KnowledgeBase.empty());
+  }
+
+  /**
+   * Full conversion.
+   *
+   * @param composite the Oracle composite the process belongs to (service calls are configured from it)
+   * @param bpmnPath location of the source file, used to find its component in the composite
+   * @param kb rules learned from finished migrations; {@link KnowledgeBase#empty()} for plain conversion
+   */
+  public ConversionResult convert(Document source, String sourceName, Optional<Composite> composite, Path bpmnPath,
+      KnowledgeBase kb) {
     ConversionReport report = new ConversionReport(sourceName);
     Element srcDefs = source.getDocumentElement();
     if (!Ns.BPMN.equals(srcDefs.getNamespaceURI()) || !"definitions".equals(srcDefs.getLocalName())) {
@@ -90,17 +114,25 @@ public final class OracleToCamundaConverter {
       report.add(null, sourceName, null, "definitions", Level.MANUAL, "No bpmn:process found.");
     }
     Element[] targets = new Element[processes.size()];
+    KnowledgeApplier applier = new KnowledgeApplier(kb, ctx);
     for (int i = 0; i < processes.size(); i++) {
-      targets[i] = ProcessConverter.convertProcess(processes.get(i), defs, ctx);
+      Element p = processes.get(i);
+      String pid = p.getAttribute("id");
+      ctx.serviceCalls(composite.map(c -> new ServiceCallResolver(c,
+          c.componentForBpmn(bpmnPath == null ? Path.of(sourceName) : bpmnPath, pid)
+              .map(Composite.Component::name).orElse(pid))).orElse(null));
+      targets[i] = ProcessConverter.convertProcess(p, defs, ctx);
+      applier.applyToProcess(p, targets[i]);
     }
     ConversionContextAccess.writeRootElements(ctx);
+    applier.applyToMessages(defs);
     for (int i = 0; i < processes.size(); i++) {
       DiagramGenerator.generate(processes.get(i), targets[i], defs);
     }
 
     List<String> issues = Camunda8ModelValidator.validate(target);
     issues.forEach(report::addValidationIssue);
-    return new ConversionResult(sourceName, target, report);
+    return new ConversionResult(sourceName, target, report, source);
   }
 
   static String baseName(String name) {
@@ -110,7 +142,7 @@ public final class OracleToCamundaConverter {
   }
 
   /** Converted model and its report. */
-  public record ConversionResult(String sourceName, Document document, ConversionReport report) {
+  public record ConversionResult(String sourceName, Document document, ConversionReport report, Document source) {
     public String bpmnXml() {
       return XmlUtils.toString(document);
     }

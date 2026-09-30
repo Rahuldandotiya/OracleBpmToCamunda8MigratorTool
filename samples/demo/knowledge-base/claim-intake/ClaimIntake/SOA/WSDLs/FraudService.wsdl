@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic sample -->
+<wsdl:definitions name="FraudService" targetNamespace="http://example.com/fraud"
+    xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://example.com/fraud">
+  <wsdl:portType name="FraudServicePortType">
+    <wsdl:operation name="checkFraud"/>
+  </wsdl:portType>
+  <wsdl:binding name="FraudServiceBinding" type="tns:FraudServicePortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="checkFraud">
+      <soap:operation soapAction="http://example.com/fraud/checkFraud"/>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="FraudService">
+    <wsdl:port name="FraudServicePort" binding="tns:FraudServiceBinding">
+      <soap:address location="http://fraud.example.com/FraudService"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

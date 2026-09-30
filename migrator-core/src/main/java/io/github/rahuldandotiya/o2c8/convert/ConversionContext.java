@@ -72,13 +72,31 @@ public final class ConversionContext {
   // ------------------------------------------------------------------ report
 
   public void report(Element source, Level level, String message) {
-    report.add(
+    report(source, level, message, ConversionReport.Source.BUILT_IN);
+  }
+
+  public void report(Element source, Level level, String message, ConversionReport.Source from) {
+    report.add(new ConversionReport.Entry(
         processId,
         source.getAttribute("id"),
         source.hasAttribute("name") ? source.getAttribute("name") : null,
         source.getLocalName(),
         level,
-        message);
+        message,
+        from));
+  }
+
+  // ------------------------------------------------------------------ project context
+
+  private io.github.rahuldandotiya.o2c8.composite.ServiceCallResolver serviceCalls;
+
+  /** Resolver for calls through composite.xml, or null when the process has no composite. */
+  public io.github.rahuldandotiya.o2c8.composite.ServiceCallResolver serviceCalls() {
+    return serviceCalls;
+  }
+
+  public void serviceCalls(io.github.rahuldandotiya.o2c8.composite.ServiceCallResolver resolver) {
+    this.serviceCalls = resolver;
   }
 
   // ------------------------------------------------------------------ element creation

@@ -26,8 +26,14 @@ jobs:
 
       - name: Convert samples with the CLI
         run: |
-          java -jar migrator-cli/target/oracle2c8.jar convert samples -o camunda8-output --fail-on-issues
+          java -jar migrator-cli/target/oracle2c8.jar convert samples/oracle-bpm-12c -o camunda8-output --fail-on-issues
           cat camunda8-output/conversion-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Migrate the demo with its knowledge base
+        working-directory: samples/demo
+        run: |
+          java -jar ../../migrator-cli/target/oracle2c8.jar migrate --fail-on-issues
+          java -jar ../../migrator-cli/target/oracle2c8.jar evaluate knowledge-base | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -35,3 +41,4 @@ jobs:
           path: |
             migrator-cli/target/oracle2c8.jar
             camunda8-output/
+            samples/demo/camunda8-output/
