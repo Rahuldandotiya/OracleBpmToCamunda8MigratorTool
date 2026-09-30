@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Synthetic sample written in Oracle SOA Suite 12c composite style for oracle2c8 tests. -->
+<composite name="ClaimIntake" revision="1.0" label="2026-09-30_10-00-00_000" mode="active" state="on"
+           xmlns="http://xmlns.oracle.com/sca/1.0" xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:wsp="http://schemas.xmlsoap.org/ws/2004/09/policy" xmlns:orawsp="http://schemas.oracle.com/ws/2006/01/policy"
+           xmlns:ui="http://xmlns.oracle.com/soa/designer/">
+  <service name="ClaimIntakeProcess.service" ui:wsdlLocation="WSDLs/ClaimIntakeProcess.wsdl">
+    <interface.wsdl interface="http://xmlns.oracle.com/ClaimApps/ClaimIntake/ClaimIntakeProcess#wsdl.interface(ClaimIntakeProcessPortType)"/>
+    <binding.ws port="http://xmlns.oracle.com/ClaimApps/ClaimIntake/ClaimIntakeProcess#wsdl.endpoint(ClaimIntakeProcess.service/ClaimIntakeProcessPort)"/>
+  </service>
+  <component name="ClaimIntakeProcess" version="2.0">
+    <implementation.bpmn src="processes/ClaimIntakeProcess.bpmn"/>
+  </component>
+  <reference name="PolicyService" ui:wadlLocation="Adapters/PolicyService.wadl">
+    <interface.wsdl interface="http://xmlns.oracle.com/ClaimApps/PolicyService#wsdl.interface(PolicyService_ptt)"/>
+    <binding.rest config="Adapters/PolicyService.wadl" location="http://policy.internal.example.com/api"/>
+  </reference>
+  <reference name="FraudService" ui:wsdlLocation="WSDLs/FraudService.wsdl">
+    <interface.wsdl interface="http://example.com/fraud#wsdl.interface(FraudServicePortType)"/>
+    <binding.ws port="http://example.com/fraud#wsdl.endpoint(FraudService/FraudServicePort)" location="http://fraud.example.com/FraudService" soapVersion="1.1"/>
+  </reference>
+  <reference name="ClaimDB" ui:wsdlLocation="WSDLs/ClaimDB.wsdl">
+    <interface.wsdl interface="http://xmlns.oracle.com/pcbpel/adapter/db/ClaimDB#wsdl.interface(ClaimDB_ptt)"/>
+    <binding.jca config="Adapters/ClaimDB_db.jca"/>
+  </reference>
+  <wire>
+    <source.uri>ClaimIntakeProcess.service</source.uri>
+    <target.uri>ClaimIntakeProcess/ClaimIntakeProcess.service</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimIntakeProcess/PolicyService</source.uri>
+    <target.uri>PolicyService</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimIntakeProcess/FraudService</source.uri>
+    <target.uri>FraudService</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimIntakeProcess/ClaimDB</source.uri>
+    <target.uri>ClaimDB</target.uri>
+  </wire>
+</composite>

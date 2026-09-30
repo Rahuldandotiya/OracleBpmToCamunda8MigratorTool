@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic sample (Oracle DB adapter style) -->
+<adapter-config name="SettlementDB" adapter="db" wsdlLocation="../WSDLs/SettlementDB.wsdl" xmlns="http://platform.integration.oracle/blocks/adapter/fw/metadata">
+  <connection-factory location="eis/DB/ClaimsDS" UIConnectionName="ClaimsDS" adapterRef=""/>
+  <endpoint-interaction portType="SettlementDB_ptt" operation="merge">
+    <interaction-spec className="oracle.tip.adapter.db.DBWriteInteractionSpec">
+      <property name="DescriptorName" value="SettlementDB.Claim"/>
+      <property name="DmlType" value="merge"/>
+      <property name="MappingsMetaDataURL" value="SettlementDB-or-mappings.xml"/>
+    </interaction-spec>
+  </endpoint-interaction>
+</adapter-config>

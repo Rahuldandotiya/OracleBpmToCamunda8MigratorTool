@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic sample (Oracle SOA 12c REST adapter style) -->
+<application xmlns="http://wadl.dev.java.net/2009/02" xmlns:soa="http://www.oracle.com/soa/rest" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <resources base="http://policy.internal.example.com/api">
+    <resource path="/policies/{policyNumber}">
+      <method name="GET" soa:wsdlOperation="getPolicy">
+        <request>
+          <param name="policyNumber" style="template" type="xsd:string"/>
+        </request>
+        <response status="200"><representation mediaType="application/json"/></response>
+      </method>
+    </resource>
+  </resources>
+</application>

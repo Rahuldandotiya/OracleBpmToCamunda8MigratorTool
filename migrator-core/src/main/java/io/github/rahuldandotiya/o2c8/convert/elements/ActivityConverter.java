@@ -33,6 +33,16 @@ public final class ActivityConverter implements ElementConverter {
   @Override
   public Element convert(Element source, Element parent, ConversionContext ctx) {
     String kind = source.getLocalName();
+    if ((kind.equals("serviceTask") || kind.equals("sendTask")) && ctx.serviceCalls() != null) {
+      var call = ctx.serviceCalls().resolve(source);
+      if (call.isPresent()) {
+        var mapped = io.github.rahuldandotiya.o2c8.connectors.ServiceCallMapper.map(source, parent, ctx, call.get());
+        if (mapped.isPresent()) {
+          loop(source, mapped.get(), ctx);
+          return mapped.get();
+        }
+      }
+    }
     Element e = switch (kind) {
       case "userTask" -> userTask(source, parent, ctx);
       case "serviceTask", "sendTask", "scriptTask", "businessRuleTask" -> jobTask(source, parent, ctx, kind);

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Synthetic sample written in Oracle SOA Suite 12c composite style for oracle2c8 tests. -->
+<composite name="ClaimSettlement" revision="1.0" label="2026-09-30_10-00-00_000" mode="active" state="on"
+           xmlns="http://xmlns.oracle.com/sca/1.0" xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:wsp="http://schemas.xmlsoap.org/ws/2004/09/policy" xmlns:orawsp="http://schemas.oracle.com/ws/2006/01/policy"
+           xmlns:ui="http://xmlns.oracle.com/soa/designer/">
+  <service name="ClaimSettlementProcess.service" ui:wsdlLocation="WSDLs/ClaimSettlementProcess.wsdl">
+    <interface.wsdl interface="http://xmlns.oracle.com/ClaimApps/ClaimSettlement/ClaimSettlementProcess#wsdl.interface(ClaimSettlementProcessPortType)"/>
+    <binding.ws port="http://xmlns.oracle.com/ClaimApps/ClaimSettlement/ClaimSettlementProcess#wsdl.endpoint(ClaimSettlementProcess.service/ClaimSettlementProcessPort)"/>
+  </service>
+  <service name="PaymentProcess.service" ui:wsdlLocation="WSDLs/PaymentProcess.wsdl">
+    <interface.wsdl interface="http://xmlns.oracle.com/ClaimApps/ClaimSettlement/PaymentProcess#wsdl.interface(PaymentProcessPortType)"/>
+    <binding.ws port="http://xmlns.oracle.com/ClaimApps/ClaimSettlement/PaymentProcess#wsdl.endpoint(PaymentProcess.service/PaymentProcessPort)"/>
+  </service>
+  <component name="ClaimSettlementProcess" version="2.0">
+    <implementation.bpmn src="processes/ClaimSettlementProcess.bpmn"/>
+  </component>
+  <component name="PaymentProcess" version="2.0">
+    <implementation.bpmn src="processes/PaymentProcess.bpmn"/>
+  </component>
+  <reference name="PolicyService" ui:wadlLocation="Adapters/PolicyService.wadl">
+    <interface.wsdl interface="http://xmlns.oracle.com/ClaimApps/PolicyService#wsdl.interface(PolicyService_ptt)"/>
+    <binding.rest config="Adapters/PolicyService.wadl" location="http://policy.internal.example.com/api"/>
+  </reference>
+  <reference name="FraudService" ui:wsdlLocation="WSDLs/FraudService.wsdl">
+    <interface.wsdl interface="http://example.com/fraud#wsdl.interface(FraudServicePortType)"/>
+    <binding.ws port="http://example.com/fraud#wsdl.endpoint(FraudService/FraudServicePort)" location="http://fraud.example.com/FraudService" soapVersion="1.1"/>
+  </reference>
+  <reference name="SettlementDB" ui:wsdlLocation="WSDLs/SettlementDB.wsdl">
+    <interface.wsdl interface="http://xmlns.oracle.com/pcbpel/adapter/db/SettlementDB#wsdl.interface(SettlementDB_ptt)"/>
+    <binding.jca config="Adapters/SettlementDB_db.jca"/>
+  </reference>
+  <reference name="PaymentGateway" ui:wadlLocation="Adapters/PaymentGateway.wadl">
+    <interface.wsdl interface="http://xmlns.oracle.com/ClaimApps/PaymentGateway#wsdl.interface(PaymentGateway_ptt)"/>
+    <binding.rest config="Adapters/PaymentGateway.wadl" location="https://payments.example.com/v2"/>
+  </reference>
+  <wire>
+    <source.uri>ClaimSettlementProcess.service</source.uri>
+    <target.uri>ClaimSettlementProcess/ClaimSettlementProcess.service</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimSettlementProcess/PolicyService</source.uri>
+    <target.uri>PolicyService</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimSettlementProcess/FraudService</source.uri>
+    <target.uri>FraudService</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimSettlementProcess/SettlementDB</source.uri>
+    <target.uri>SettlementDB</target.uri>
+  </wire>
+  <wire>
+    <source.uri>ClaimSettlementProcess/PaymentService</source.uri>
+    <target.uri>PaymentProcess/PaymentProcess.service</target.uri>
+  </wire>
+  <wire>
+    <source.uri>PaymentProcess.service</source.uri>
+    <target.uri>PaymentProcess/PaymentProcess.service</target.uri>
+  </wire>
+  <wire>
+    <source.uri>PaymentProcess/PaymentGateway</source.uri>
+    <target.uri>PaymentGateway</target.uri>
+  </wire>
+</composite>

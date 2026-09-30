@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Example "finished" Camunda 8 model (synthetic): the converter output after the edits a migration team made. Used as a knowledge-base pair. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:modeler="http://camunda.org/schema/modeler/1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" exporter="Oracle BPM to Camunda 8 Migrator" exporterVersion="0.2.0" id="Definitions_VerificationProcess" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.6.0" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_VerificationProcess">
+    <bpmn:participant id="Participant_VerificationProcess" name="VerificationProcess" processRef="VerificationProcess"/>
+  </bpmn:collaboration>
+  <bpmn:process id="VerificationProcess" isExecutable="true" name="VerificationProcess">
+    <bpmn:laneSet id="LaneSet_VerificationProcess">
+      <bpmn:lane id="lane0" name="ExpertAgent">
+        <bpmn:flowNodeRef>ACT10325139620772</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EVT10323951467936</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EVT10323951467948</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>GTW10323961377976</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>GTW10436045311984</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="lane1" name="RegularAgent">
+        <bpmn:flowNodeRef>ACT10325149764563</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:userTask id="ACT10325139620772" name="EVerificationUserTask">
+      <bpmn:documentation>Oracle human task: EVerificationUserTask (http://xmlns.oracle.com/ClaimApps/InsuranceClaim/EVerificationUserTask)</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask/>
+        <zeebe:formDefinition formId="everification-user-task-form"/>
+        <zeebe:assignmentDefinition candidateGroups="claims-expert-agent"/>
+        <zeebe:priorityDefinition priority="75"/>
+        <zeebe:ioMapping>
+          <zeebe:input source="=claim" target="claim"/>
+          <zeebe:output source="=claim" target="claim"/>
+          <zeebe:output source="=orgUnit" target="organizationalUnit"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sf10323962518756</bpmn:incoming>
+      <bpmn:outgoing>sf1032514362476</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="ACT10325149764563" name="RVerificationUserTask">
+      <bpmn:documentation>Oracle human task: RVerificationUserTask (http://xmlns.oracle.com/ClaimApps/InsuranceClaim/RVerificationUserTask)</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask/>
+        <zeebe:formDefinition formId="rverification-user-task-form"/>
+        <zeebe:assignmentDefinition candidateGroups="claims-regular-agent"/>
+        <zeebe:priorityDefinition priority="50"/>
+        <zeebe:ioMapping>
+          <zeebe:input source="=claim" target="claim"/>
+          <zeebe:output source="=claim" target="claim"/>
+          <zeebe:output source="=orgUnit" target="organizationalUnit"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sf10325154331153</bpmn:incoming>
+      <bpmn:outgoing>sf10325154661229</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:startEvent id="EVT10323951467936" name="Start">
+      <bpmn:extensionElements>
+        <zeebe:ioMapping>
+          <zeebe:output source="=VerificationProcessIN" target="claim"/>
+          <zeebe:output source="=&quot;OrganizationalUnit&quot;" target="organizationalUnit"/>
+          <zeebe:output source="=&quot;OrganizationalUnit&quot;" target="orgUnit"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>sf10323951468062</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:endEvent id="EVT10323951467948" name="End">
+      <bpmn:incoming>sf1043605676354</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway default="sf10323962518756" id="GTW10323961377976" name="Sensitivity?">
+      <bpmn:incoming>sf10323951468062</bpmn:incoming>
+      <bpmn:outgoing>sf10323962518756</bpmn:outgoing>
+      <bpmn:outgoing>sf10325154331153</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="GTW10436045311984" name="Sensitivity">
+      <bpmn:incoming>sf1032514362476</bpmn:incoming>
+      <bpmn:incoming>sf10325154661229</bpmn:incoming>
+      <bpmn:outgoing>sf1043605676354</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="sf10323951468062" sourceRef="EVT10323951467936" targetRef="GTW10323961377976"/>
+    <bpmn:sequenceFlow id="sf10323962518756" sourceRef="GTW10323961377976" targetRef="ACT10325139620772"/>
+    <bpmn:sequenceFlow id="sf1032514362476" sourceRef="ACT10325139620772" targetRef="GTW10436045311984"/>
+    <bpmn:sequenceFlow id="sf10325154331153" sourceRef="GTW10323961377976" targetRef="ACT10325149764563">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=claim.FNOL.sensitivity != "Expert"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="sf10325154661229" sourceRef="ACT10325149764563" targetRef="GTW10436045311984"/>
+    <bpmn:sequenceFlow id="sf1043605676354" sourceRef="GTW10436045311984" targetRef="EVT10323951467948"/>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_VerificationProcess">
+    <bpmndi:BPMNPlane bpmnElement="Collaboration_VerificationProcess" id="BPMNPlane_VerificationProcess">
+      <bpmndi:BPMNShape bpmnElement="Participant_VerificationProcess" id="Participant_VerificationProcess_di" isHorizontal="true">
+        <dc:Bounds height="400" width="891" x="120" y="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="lane0" id="lane0_di" isHorizontal="true">
+        <dc:Bounds height="200" width="861" x="150" y="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="lane1" id="lane1_di" isHorizontal="true">
+        <dc:Bounds height="200" width="861" x="150" y="280"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="ACT10325139620772" id="ACT10325139620772_di">
+        <dc:Bounds height="80" width="100" x="459" y="100"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="ACT10325149764563" id="ACT10325149764563_di">
+        <dc:Bounds height="80" width="100" x="454" y="318"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="EVT10323951467936" id="EVT10323951467936_di">
+        <dc:Bounds height="36" width="36" x="183" y="164"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="EVT10323951467948" id="EVT10323951467948_di">
+        <dc:Bounds height="36" width="36" x="915" y="166"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="GTW10323961377976" id="GTW10323961377976_di">
+        <dc:Bounds height="50" width="50" x="326" y="158"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape bpmnElement="GTW10436045311984" id="GTW10436045311984_di">
+        <dc:Bounds height="50" width="50" x="736" y="161"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge bpmnElement="sf10323951468062" id="sf10323951468062_di">
+        <di:waypoint x="219" y="182"/>
+        <di:waypoint x="326" y="182"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf10323962518756" id="sf10323962518756_di">
+        <di:waypoint x="351" y="158"/>
+        <di:waypoint x="351" y="140"/>
+        <di:waypoint x="459" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf1032514362476" id="sf1032514362476_di">
+        <di:waypoint x="559" y="140"/>
+        <di:waypoint x="761" y="140"/>
+        <di:waypoint x="761" y="161"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf10325154331153" id="sf10325154331153_di">
+        <di:waypoint x="351" y="208"/>
+        <di:waypoint x="351" y="358"/>
+        <di:waypoint x="454" y="358"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf10325154661229" id="sf10325154661229_di">
+        <di:waypoint x="554" y="358"/>
+        <di:waypoint x="761" y="358"/>
+        <di:waypoint x="761" y="211"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge bpmnElement="sf1043605676354" id="sf1043605676354_di">
+        <di:waypoint x="786" y="186"/>
+        <di:waypoint x="915" y="186"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
