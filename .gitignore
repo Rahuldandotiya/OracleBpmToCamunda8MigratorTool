@@ -21,7 +21,5 @@ knowledge-base/*
 processToMigrate/*
 !processToMigrate/README.md
 
-# Local settings (may contain Web Modeler credentials); the template is application.properties.example
-application.properties
 # Node tooling for tools/verify-bpmn
 node_modules/

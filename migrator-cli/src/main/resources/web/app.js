@@ -162,7 +162,7 @@ function renderStatus() {
   pill.className = 'pill ' + (conf ? 'ok' : '');
   $('#wmInfo').innerHTML = wm.error ? kv({ 'Problem': wm.error }) : kv({
     'Mode': wm.mode === 'saas' ? 'SaaS' : 'Self-Managed',
-    'Configured': conf ? 'yes' : 'no: set camunda.webmodeler.client-id and client-secret',
+    'Configured': conf ? 'yes' : 'no: set CAMUNDA_WEBMODELER_CLIENT_ID and CAMUNDA_WEBMODELER_CLIENT_SECRET',
     'API URL': wm.apiUrl,
     'Token URL': wm.tokenUrl,
     'Client id': wm.clientId || '(not set)',

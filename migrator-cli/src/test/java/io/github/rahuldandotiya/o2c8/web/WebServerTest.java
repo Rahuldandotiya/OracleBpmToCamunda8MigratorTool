@@ -204,7 +204,7 @@ class WebServerTest {
       Res r = call(plain, "POST", "workspaces/" + ws + "/webmodeler/push", "{\"folder\":\"Wave 1\"}");
       assertEquals(503, r.status());
       assertEquals("NOT_CONFIGURED", r.json().get("kind"));
-      assertTrue(((String) r.json().get("error")).contains("application.properties"));
+      assertTrue(((String) r.json().get("error")).contains("CAMUNDA_WEBMODELER_CLIENT_ID"));
     } finally {
       plain.stop();
     }

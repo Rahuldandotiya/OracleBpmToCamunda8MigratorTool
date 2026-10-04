@@ -80,7 +80,7 @@ class WebModelerClientTest {
       WebModelerClient c = new WebModelerClient(WebModelerClient.Settings.from(cfg));
       WebModelerException e = assertThrows(WebModelerException.class, c::check);
       assertEquals(WebModelerException.Kind.AUTHENTICATION, e.kind());
-      assertTrue(e.getMessage().contains("client-id and client-secret"), e.getMessage());
+      assertTrue(e.getMessage().contains("CAMUNDA_WEBMODELER_CLIENT_ID and CAMUNDA_WEBMODELER_CLIENT_SECRET"), e.getMessage());
       assertTrue(e.getMessage().contains("Administration API"), e.getMessage());
     }
   }
@@ -90,7 +90,7 @@ class WebModelerClientTest {
     WebModelerClient c = new WebModelerClient(WebModelerClient.Settings.from(AppConfig.of(Map.of())));
     WebModelerException e = assertThrows(WebModelerException.class, () -> c.push("x", MODELS));
     assertEquals(WebModelerException.Kind.NOT_CONFIGURED, e.kind());
-    assertTrue(e.getMessage().contains("camunda.webmodeler.client-id"), e.getMessage());
+    assertTrue(e.getMessage().contains("CAMUNDA_WEBMODELER_CLIENT_ID"), e.getMessage());
   }
 
   @Test
