@@ -13,6 +13,8 @@ import io.github.rahuldandotiya.o2c8.expression.XPathToFeel;
 import io.github.rahuldandotiya.o2c8.oracle.OracleExtensions;
 import io.github.rahuldandotiya.o2c8.report.ConversionReport.Level;
 import io.github.rahuldandotiya.o2c8.xml.Ns;
+import io.github.rahuldandotiya.o2c8.xml.XmlUtils;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -94,6 +96,17 @@ public final class ActivityConverter implements ElementConverter {
     String taskFile = ht.map(t -> t.name() + ".task").orElse("the Oracle .task file");
     ht.ifPresent(t -> ctx.addDocumentation(e, "Oracle human task: " + t.name()
         + (t.namespace() == null ? "" : " (" + t.namespace() + ")")));
+    String taskType = ox.feature("humanTaskType").orElse("SIMPLE");
+    if (!taskType.equals("SIMPLE")) {
+      ctx.report(source, Level.INFO, switch (taskType) {
+        case "INITIATOR" -> "Oracle initiator task: the person who starts the process completes it. Consider a start "
+            + "form on the start event instead (zeebe:formDefinition) or keep this user task.";
+        case "FYI" -> "Oracle FYI task (notification only): consider a notification or a send task instead.";
+        case "GROUP", "MANAGEMENT", "COMPLEX" -> "Oracle " + taskType.toLowerCase(java.util.Locale.ROOT)
+            + " task: its routing/approval chain from the .task file must be modelled explicitly in Camunda.";
+        default -> "Oracle human task type " + taskType + ".";
+      });
+    }
     ctx.report(source, Level.PARTIAL,
         "User task" + (role == null ? "" : " for candidate group '" + role + "'")
             + (prio.isPresent() ? ", Oracle priority " + prio.get().trim() : "")
@@ -119,6 +132,12 @@ public final class ActivityConverter implements ElementConverter {
       case "scriptTask" -> " Or turn simple assignments into a FEEL script (zeebe:script).";
       default -> " Or apply a REST/SOAP connector template.";
     };
+    if (kind.equals("sendTask") && OracleExtensions.of(source).definedInterfaceOperation().isPresent()) {
+      ctx.report(source, Level.PARTIAL, "Asynchronous reply '" + OracleExtensions.of(source).definedInterfaceOperation().get()
+          + "' to the process's caller (Oracle callback). Job worker '" + td.getAttribute("type") + "' generated: "
+          + "implement it to call the caller's callback endpoint, or let the caller read the result instead.");
+      return e;
+    }
     ctx.report(source, Level.PARTIAL,
         what + " needs a job worker for type '" + td.getAttribute("type") + "'"
             + (operation == null ? "" : " (Oracle operation " + operation + ")") + "." + hint);
@@ -127,8 +146,9 @@ public final class ActivityConverter implements ElementConverter {
 
   private Element receiveTask(Element source, Element parent, ConversionContext ctx) {
     Element e = ctx.createLike(source, "receiveTask", parent);
-    String name = Optional.ofNullable(attr(source, "messageRef"))
-        .orElse(Optional.ofNullable(attr(source, "name")).orElse(source.getAttribute("id")));
+    String name = OracleExtensions.of(source).definedInterfaceOperation().map(op -> ctx.processId() + "." + op)
+        .orElse(Optional.ofNullable(attr(source, "messageRef"))
+            .orElse(Optional.ofNullable(attr(source, "name")).orElse(source.getAttribute("id"))));
     String msgId = ctx.message(name);
     e.setAttribute("messageRef", msgId);
     ctx.messageSubscription(msgId, ctx.options().correlationKeyPlaceholder());
@@ -155,11 +175,12 @@ public final class ActivityConverter implements ElementConverter {
     return e;
   }
 
-  private void loop(Element source, Element target, ConversionContext ctx) {
-    Optional<Element> mi = child(source, Ns.BPMN, "multiInstanceLoopCharacteristics");
-    if (child(source, Ns.BPMN, "standardLoopCharacteristics").isPresent()) {
+  /** Multi-instance / standard loop characteristics of any activity, including sub-processes. */
+  public static void loop(Element source, Element target, ConversionContext ctx) {
+    Optional<Element> mi = multiInstance(source);
+    if (standardLoop(source)) {
       ctx.report(source, Level.MANUAL,
-          "Standard (while) loops are not supported by Camunda 8; model the loop with a gateway.");
+          "Standard (while) loops are not supported by Camunda 8; model the loop with a gateway and a loop-back flow.");
     }
     if (mi.isEmpty()) {
       return;
@@ -168,27 +189,119 @@ public final class ActivityConverter implements ElementConverter {
     if ("true".equals(mi.get().getAttribute("isSequential"))) {
       l.setAttribute("isSequential", "true");
     }
-    target.appendChild(l);
+    // schema order: loopCharacteristics come before a sub-process's flow elements
+    org.w3c.dom.Node before = null;
+    for (Element c : children(target, Ns.BPMN, null)) {
+      if (!java.util.Set.of("documentation", "extensionElements", "incoming", "outgoing").contains(c.getLocalName())) {
+        before = c;
+        break;
+      }
+    }
+    target.insertBefore(l, before);
     Element ext = ctx.bpmn("extensionElements");
     Element zl = ctx.zeebe("loopCharacteristics");
-    String input = child(mi.get(), Ns.BPMN, "loopDataInputRef").map(x -> x.getTextContent().trim())
-        .orElse(null);
-    String cardinality = child(mi.get(), Ns.BPMN, "loopCardinality").map(x -> ownText(x)).orElse(null);
-    if (input != null) {
-      zl.setAttribute("inputCollection", "=" + XPathToFeel.translate("bpmn:getDataObject('" + input + "')").feel());
-      zl.setAttribute("inputElement", "item");
-      ctx.report(source, Level.PARTIAL, "Multi-instance over '" + input + "' (element variable 'item').");
+    String inputRef = child(mi.get(), Ns.BPMN, "loopDataInputRef").map(x -> x.getTextContent().trim())
+        .filter(x -> !x.isEmpty()).orElse(null);
+    String outputRef = child(mi.get(), Ns.BPMN, "loopDataOutputRef").map(x -> x.getTextContent().trim())
+        .filter(x -> !x.isEmpty()).orElse(null);
+    String cardinality = child(mi.get(), Ns.BPMN, "loopCardinality").map(x -> ownText(x))
+        .filter(x -> !x.isBlank()).orElse(null);
+    List<String> notes = new java.util.ArrayList<>();
+    Level level = Level.AUTO;
+    if (inputRef != null) {
+      // the loop input is a data input of the activity, filled by an association from a data object
+      String collection = associationExpression(source, inputRef, true);
+      XPathToFeel.Result r = collection == null ? null : XPathToFeel.translate(collection);
+      if (r != null && r.ok()) {
+        zl.setAttribute("inputCollection", "=" + r.feel());
+      } else {
+        zl.setAttribute("inputCollection", "=" + XPathToFeel.feelNameOf(inputRef));
+        level = Level.PARTIAL;
+        notes.add("input collection: check that variable '" + inputRef + "' holds the list");
+      }
+      zl.setAttribute("inputElement", inputRef + "Item");
+      notes.add("each instance gets one element as '" + inputRef + "Item'");
     } else if (cardinality != null) {
       XPathToFeel.Result r = XPathToFeel.translate(cardinality);
       zl.setAttribute("inputCollection", "=for i in 1.." + (r.ok() ? r.feel() : "1") + " return i");
-      ctx.report(source, r.ok() ? Level.PARTIAL : Level.MANUAL,
-          "Multi-instance by cardinality " + cardinality + " converted to a generated collection.");
+      if (!r.ok()) {
+        level = Level.MANUAL;
+        notes.add("cardinality " + cardinality + " could not be translated (" + r.problem() + ")");
+      } else {
+        notes.add("cardinality " + r.feel() + " becomes a generated collection");
+      }
     } else {
       zl.setAttribute("inputCollection", "=[]");
-      ctx.report(source, Level.MANUAL, "Multi-instance without input collection; set zeebe:loopCharacteristics.");
+      level = Level.MANUAL;
+      notes.add("no input collection or cardinality found");
+    }
+    if (outputRef != null) {
+      String target2 = associationExpression(source, outputRef, false);
+      XPathToFeel.Result t = target2 == null ? null : XPathToFeel.translateTarget(target2);
+      if (t != null && t.ok()) {
+        zl.setAttribute("outputCollection", t.feel());
+        zl.setAttribute("outputElement", "=" + (inputRef == null ? "loopCounter" : inputRef + "Item"));
+        level = level == Level.AUTO ? Level.PARTIAL : level;
+        notes.add("results collected into '" + t.feel() + "'; check the output element");
+      }
+    }
+    String completion = child(mi.get(), Ns.BPMN, "completionCondition").map(x -> ownText(x))
+        .filter(x -> !x.isBlank()).orElse(null);
+    if (completion != null) {
+      XPathToFeel.Result c = XPathToFeel.translate(completion);
+      if (c.ok()) {
+        Element cc = ctx.bpmn("completionCondition");
+        cc.setAttributeNS(Ns.XSI, "xsi:type", "bpmn:tFormalExpression");
+        cc.setTextContent("=" + c.feel());
+        l.appendChild(cc);
+        notes.add("completion condition " + c.feel());
+      } else {
+        level = Level.MANUAL;
+        notes.add("completion condition not translated: " + completion + " (" + c.problem() + ")");
+      }
     }
     ext.appendChild(zl);
-    l.appendChild(ext);
+    l.insertBefore(ext, l.getFirstChild());
+    ctx.report(source, level, "Multi-instance (" + ("true".equals(mi.get().getAttribute("isSequential"))
+        ? "sequential" : "parallel") + "): " + String.join("; ", notes) + ".");
+  }
+
+  /** {@code multiInstanceLoopCharacteristics}, or Oracle's {@code loopCharacteristics xsi:type=tMultiInstance...}. */
+  public static Optional<Element> multiInstance(Element source) {
+    Optional<Element> mi = child(source, Ns.BPMN, "multiInstanceLoopCharacteristics");
+    if (mi.isPresent()) {
+      return mi;
+    }
+    return child(source, Ns.BPMN, "loopCharacteristics")
+        .filter(l -> l.getAttributeNS(Ns.XSI, "type").contains("MultiInstance"));
+  }
+
+  static boolean standardLoop(Element source) {
+    return child(source, Ns.BPMN, "standardLoopCharacteristics").isPresent()
+        || child(source, Ns.BPMN, "loopCharacteristics")
+            .filter(l -> l.getAttributeNS(Ns.XSI, "type").contains("StandardLoop")).isPresent();
+  }
+
+  /** XPath on the far side of the association that feeds (input) or reads (output) a data input/output. */
+  private static String associationExpression(Element source, String ioId, boolean input) {
+    String assocName = input ? "dataInputAssociation" : "dataOutputAssociation";
+    for (Element a : children(source, Ns.BPMN, assocName)) {
+      String ref = child(a, Ns.BPMN, input ? "targetRef" : "sourceRef").map(x -> x.getTextContent().trim()).orElse("");
+      if (!ref.equals(ioId)) {
+        continue;
+      }
+      for (Element as : children(a, Ns.BPMN, "assignment")) {
+        String side = child(as, Ns.BPMN, input ? "from" : "to").map(XmlUtils::ownText).orElse(null);
+        if (side != null && !side.isBlank()) {
+          return side;
+        }
+      }
+      String other = child(a, Ns.BPMN, input ? "sourceRef" : "targetRef").map(x -> x.getTextContent().trim()).orElse(null);
+      if (other != null && !other.isEmpty()) {
+        return "bpmn:getDataObject('" + other + "')";
+      }
+    }
+    return null;
   }
 
   /** Oracle priority 1 (highest) .. 5 (lowest) → Camunda 0..100 (higher is more urgent). */

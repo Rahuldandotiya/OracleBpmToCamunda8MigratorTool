@@ -56,6 +56,11 @@ public final class CompositeReader {
       references.add(new Reference(r.getAttribute("name"), iface, anyAttr(r, "wsdlLocation"), binding(r)));
     }
 
+    List<Composite.Service> services = new ArrayList<>();
+    for (Element sv : children(root, null, "service")) {
+      services.add(new Composite.Service(sv.getAttribute("name"), anyAttr(sv, "wsdlLocation"), binding(sv)));
+    }
+
     List<Wire> wires = new ArrayList<>();
     for (Element w : children(root, null, "wire")) {
       String s = children(w, null, "source.uri").stream().map(e -> e.getTextContent().trim()).findFirst().orElse("");
@@ -65,7 +70,7 @@ public final class CompositeReader {
 
     Map<String, Map<String, String>> plan = readConfigPlans(dir);
     return new Composite(file.toAbsolutePath().normalize(), dir, root.getAttribute("name"),
-        List.copyOf(components), List.copyOf(references), List.copyOf(wires), plan);
+        List.copyOf(components), List.copyOf(references), List.copyOf(services), List.copyOf(wires), plan);
   }
 
   private static Binding binding(Element reference) {

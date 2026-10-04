@@ -9,9 +9,11 @@ import io.github.rahuldandotiya.o2c8.ConverterOptions.InterfaceEvents;
 import io.github.rahuldandotiya.o2c8.convert.ConversionContext;
 import io.github.rahuldandotiya.o2c8.convert.DataMappings;
 import io.github.rahuldandotiya.o2c8.convert.ElementConverter;
+import io.github.rahuldandotiya.o2c8.expression.XPathToFeel;
 import io.github.rahuldandotiya.o2c8.oracle.OracleExtensions;
 import io.github.rahuldandotiya.o2c8.report.ConversionReport.Level;
 import io.github.rahuldandotiya.o2c8.xml.Ns;
+import io.github.rahuldandotiya.o2c8.xml.XmlUtils;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -43,6 +45,14 @@ public final class EventConverter implements ElementConverter {
     String defType = def == null ? "none" : def.getLocalName().replace("EventDefinition", "");
     OracleExtensions ox = OracleExtensions.of(source);
     boolean inEventSubProcess = "true".equals(parent.getAttribute("triggeredByEvent"));
+
+    // started through a composite entry point (inbound JMS/email/file adapter or SOAP endpoint)
+    if (kind.equals("startEvent") && defType.equals("message") && ctx.serviceCalls() != null && !inEventSubProcess) {
+      var inbound = ctx.serviceCalls().resolveInbound(source);
+      if (inbound.isPresent()) {
+        return inboundStart(source, parent, ctx, ox, inbound.get());
+      }
+    }
 
     // Oracle "define interface" events: the process is exposed as a (SOAP) service operation
     boolean interfaceEvent = defType.equals("message") && ox.definedInterfaceOperation().isPresent();
@@ -132,6 +142,52 @@ public final class EventConverter implements ElementConverter {
     return e;
   }
 
+  /** Start event fed by an inbound adapter (JMS, email, file...) or a SOAP endpoint in the composite. */
+  private Element inboundStart(Element source, Element parent, ConversionContext ctx, OracleExtensions ox,
+      io.github.rahuldandotiya.o2c8.composite.ServiceCallResolver.InboundStart inbound) {
+    var service = inbound.service();
+    if (!(service.binding() instanceof io.github.rahuldandotiya.o2c8.composite.Composite.JcaBinding jca)) {
+      return interfaceStart(source, parent, ctx, ox); // SOAP/HTTP endpoint: start through the API
+    }
+    var composite = ctx.serviceCalls().composite();
+    io.github.rahuldandotiya.o2c8.composite.ServiceDescriptors.JcaConfig cfg = composite.resolve(jca.config())
+        .map(f -> {
+          try {
+            return io.github.rahuldandotiya.o2c8.composite.ServiceDescriptors.jca(f);
+          } catch (java.io.IOException ex) {
+            return null;
+          }
+        }).orElse(null);
+    String adapter = cfg == null || cfg.adapter() == null ? "adapter" : cfg.adapter().toLowerCase(java.util.Locale.ROOT);
+    Element e = ctx.createLike(source, "startEvent", parent);
+    String messageName = service.name();
+    eventDefinition(ctx, e, "message").setAttribute("messageRef", ctx.message(messageName));
+    java.util.Map<String, String> p = cfg == null ? java.util.Map.of() : cfg.properties();
+    StringBuilder doc = new StringBuilder("Oracle inbound " + adapter + " adapter '" + service.name() + "'");
+    if (cfg != null && cfg.connectionFactory() != null) {
+      doc.append(", connection ").append(cfg.connectionFactory());
+    }
+    p.forEach((k, v) -> doc.append(", ").append(k).append('=').append(v));
+    ctx.addDocumentation(e, doc.toString());
+    String hint = switch (adapter) {
+      case "jms", "aq" -> "Started by JMS destination " + p.getOrDefault("DestinationName", p.getOrDefault("QueueName", "?"))
+          + ". Camunda 8 has no JMS inbound connector: forward each JMS message with a small bridge that publishes "
+          + "message '" + messageName + "' (or move the queue to Kafka/RabbitMQ and use that inbound connector).";
+      case "ums" -> "Started by an email" + (p.containsKey("To") ? " to " + p.get("To") : "")
+          + ". Use the Camunda Email inbound connector (IMAP polling) or a bridge that publishes message '"
+          + messageName + "'.";
+      case "file", "ftp" -> "Started by files in " + p.getOrDefault("PhysicalDirectory", p.getOrDefault("Directory", "?"))
+          + ". Use a file-watching bridge that publishes message '" + messageName + "'.";
+      case "db" -> "Started by database polling (" + p.getOrDefault("DescriptorName", "?") + "). Use a polling worker "
+          + "that publishes message '" + messageName + "'.";
+      default -> "Started by inbound " + adapter + " adapter; publish message '" + messageName + "' from a bridge.";
+    };
+    ctx.report(source, Level.PARTIAL, "Message start event '" + messageName + "'. " + hint,
+        io.github.rahuldandotiya.o2c8.report.ConversionReport.Source.COMPOSITE);
+    DataMappings.apply(source, e, ctx, false, true);
+    return e;
+  }
+
   private Element interfaceEnd(Element source, Element parent, ConversionContext ctx, OracleExtensions ox) {
     String op = ox.definedInterfaceOperation().orElse("end");
     Element e = ctx.createLike(source, "endEvent", parent);
@@ -148,6 +204,7 @@ public final class EventConverter implements ElementConverter {
       boolean catching, String kind) {
     Element def = children(source, Ns.BPMN, "messageEventDefinition").get(0);
     String name = OracleExtensions.of(def).eventRef().or(ox::eventRef).map(OracleExtensions.TypeRef::name)
+        .or(() -> ox.definedInterfaceOperation().map(op -> ctx.processId() + "." + op))
         .orElse(source.getAttribute("name"));
     if (name == null || name.isBlank()) {
       name = source.getAttribute("id");
@@ -179,29 +236,56 @@ public final class EventConverter implements ElementConverter {
 
   private void timer(Element source, Element def, Element e, ConversionContext ctx) {
     Element td = eventDefinition(ctx, e, "timer");
-    boolean converted = false;
     for (String k : new String[] {"timeDate", "timeDuration", "timeCycle"}) {
       Optional<Element> t = child(def, Ns.BPMN, k);
-      if (t.isPresent()) {
-        String raw = ownText(t.get()).replace("'", "").replace("\"", "").trim();
-        Element n = ctx.bpmn(k);
-        n.setAttributeNS(Ns.XSI, "xsi:type", "bpmn:tFormalExpression");
-        n.setTextContent(raw);
-        td.appendChild(n);
-        converted = raw.matches("^(R\\d*/)?P.*|^\\d{4}-\\d{2}-\\d{2}.*");
-        ctx.report(source, converted ? Level.AUTO : Level.PARTIAL,
-            converted ? "Timer " + k + " '" + raw + "'."
-                : "Timer " + k + " '" + raw + "' is not ISO 8601; rewrite it as ISO 8601 or a FEEL expression.");
+      if (t.isEmpty()) {
+        continue;
       }
-    }
-    if (!converted && td.getChildNodes().getLength() == 0) {
-      Element n = ctx.bpmn("timeDuration");
+      String text = ownText(t.get());
+      Optional<Element> schedule = XmlUtils.descendants(t.get(), Ns.ORACLE, "Schedule").stream().findFirst();
+      String value;
+      Level level = Level.AUTO;
+      String note;
+      if (text.isBlank() && schedule.isPresent()) {
+        TimerSchedules.Cron cron = TimerSchedules.toCron(schedule.get());
+        value = cron.expression();
+        level = cron.exact() ? Level.AUTO : Level.PARTIAL;
+        note = "Oracle schedule converted to cron '" + value + "' (" + cron.description() + ")";
+      } else {
+        String literal = text.replaceAll("^['\"]|['\"]$", "").trim();
+        if (literal.matches("^(R\\d*/)?P.*|^\\d{4}-\\d{2}-\\d{2}.*")) {
+          value = k.equals("timeCycle") && !literal.startsWith("R") ? "R/" + literal : literal;
+          note = "Timer " + k + " '" + value + "'";
+        } else {
+          XPathToFeel.Result r = XPathToFeel.translate(text);
+          if (r.ok()) {
+            value = "=" + r.feel();
+            note = "Timer " + k + " expression converted to FEEL: " + value;
+          } else {
+            value = k.equals("timeCycle") ? "R/PT1H" : k.equals("timeDate") ? "2099-01-01T00:00:00Z" : "PT1H";
+            level = Level.MANUAL;
+            note = "Timer " + k + " '" + text + "' could not be converted (" + r.problem() + "); placeholder '" + value
+                + "' written";
+          }
+        }
+      }
+      Element n = ctx.bpmn(k);
       n.setAttributeNS(Ns.XSI, "xsi:type", "bpmn:tFormalExpression");
-      n.setTextContent("PT1H");
+      n.setTextContent(value);
       td.appendChild(n);
-      ctx.report(source, Level.MANUAL,
-          "Oracle timer settings not found in standard BPMN; placeholder duration PT1H written.");
+      String window = TimerSchedules.window(def);
+      if (window != null) {
+        level = level == Level.AUTO ? Level.PARTIAL : level;
+        note += ". Oracle active window " + window + " is not carried over; add it to the expression or end the cycle";
+      }
+      ctx.report(source, level, note + ".");
+      return;
     }
+    Element n = ctx.bpmn("timeDuration");
+    n.setAttributeNS(Ns.XSI, "xsi:type", "bpmn:tFormalExpression");
+    n.setTextContent("PT1H");
+    td.appendChild(n);
+    ctx.report(source, Level.MANUAL, "Oracle timer settings not found in standard BPMN; placeholder duration PT1H written.");
   }
 
   private static void copyRefAttribute(Element from, Element to, String defType) {

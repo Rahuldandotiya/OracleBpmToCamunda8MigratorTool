@@ -121,6 +121,15 @@ public final class ServiceDescriptors {
     String op = null;
     String spec = null;
     Map<String, String> props = new LinkedHashMap<>();
+    for (Element ea : children(cfg, null, "endpoint-activation")) { // inbound adapters
+      op = XmlUtils.attr(ea, "operation");
+      for (Element as : children(ea, null, "activation-spec")) {
+        spec = XmlUtils.attr(as, "className");
+        for (Element p : children(as, null, "property")) {
+          props.put(p.getAttribute("name"), p.getAttribute("value"));
+        }
+      }
+    }
     for (Element ei : children(cfg, null, "endpoint-interaction")) {
       op = XmlUtils.attr(ei, "operation");
       for (Element is : children(ei, null, "interaction-spec")) {

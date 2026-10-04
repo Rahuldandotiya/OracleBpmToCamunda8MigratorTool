@@ -28,6 +28,7 @@ public final class SubProcessConverter implements ElementConverter {
     ctx.convertChildren(source, e);
     if (!eventSub) {
       DataMappings.apply(source, e, ctx, true, true);
+      ActivityConverter.loop(source, e, ctx);
     }
     switch (kind) {
       case "transaction" -> ctx.report(source, Level.MANUAL,

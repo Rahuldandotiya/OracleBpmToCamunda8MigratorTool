@@ -15,6 +15,7 @@ public record Composite(
     String name,
     List<Component> components,
     List<Reference> references,
+    List<Service> services,
     List<Wire> wires,
     Map<String, Map<String, String>> configPlanOverrides) {
 
@@ -27,6 +28,9 @@ public record Composite(
 
   /** {@code <reference>}: an outbound service with its binding. */
   public record Reference(String name, String interfaceName, String wsdlLocation, Binding binding) {}
+
+  /** Top-level {@code <service>}: an entry point into the composite (SOAP endpoint, inbound JMS/email adapter...). */
+  public record Service(String name, String wsdlLocation, Binding binding) {}
 
   /** {@code <wire>}: source.uri to target.uri. */
   public record Wire(String source, String target) {}
@@ -69,8 +73,55 @@ public record Composite(
 
   /** Where a component's partner (reference) name is wired to: "Ref" (composite reference) or "Comp/Service". */
   public Optional<String> wireTarget(String component, String partner) {
-    String src = component + "/" + partner;
-    return wires.stream().filter(w -> w.source().equals(src)).map(Wire::target).findFirst();
+    return wireTarget(component, List.of(partner));
+  }
+
+  /**
+   * Outbound wire from {@code component} whose source matches one of the partner names. Oracle
+   * generates names such as {@code Services.Externals.FraudCheck.reference} or
+   * {@code BackOffice_BackOffice_Feedback.reference}, so matching ignores those decorations.
+   */
+  public Optional<String> wireTarget(String component, List<String> partners) {
+    for (String p : partners) {
+      for (Wire w : wires) {
+        if (w.source().startsWith(component + "/") && sameName(w.source().substring(component.length() + 1), p)) {
+          return Optional.of(w.target());
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  /** Inbound wire into {@code component} from a top-level composite service (adapter or endpoint). */
+  public Optional<Service> inboundService(String component, List<String> partners) {
+    for (String p : partners) {
+      for (Wire w : wires) {
+        if (w.target().startsWith(component + "/") && sameName(w.target().substring(component.length() + 1), p)) {
+          Optional<Service> s = services.stream().filter(x -> x.name().equals(w.source())).findFirst();
+          if (s.isPresent()) {
+            return s;
+          }
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  /** Compares an Oracle-generated endpoint name with a partner name, ignoring prefixes and suffixes. */
+  static boolean sameName(String generated, String partner) {
+    String g = strip(generated);
+    String p = strip(partner);
+    return g.equals(p) || g.endsWith("." + p) || g.endsWith("_" + p) || p.endsWith("." + g);
+  }
+
+  private static String strip(String n) {
+    String s = n.replaceAll("\\.(reference|service)$", "");
+    for (String prefix : new String[] {"Services.Externals.", "References.Externals.", "Services.", "References."}) {
+      if (s.startsWith(prefix)) {
+        s = s.substring(prefix.length());
+      }
+    }
+    return s;
   }
 
   /** Resolves a path relative to the composite folder, refusing to leave it. */

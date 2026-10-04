@@ -35,7 +35,12 @@ public final class ProcessConverter {
           "property",
           "resourceRole",
           "laneSet",
-          "sequenceFlow");
+          "sequenceFlow",
+          "incoming",
+          "outgoing",
+          "multiInstanceLoopCharacteristics",
+          "standardLoopCharacteristics",
+          "loopCharacteristics");
 
   private ProcessConverter() {}
 
@@ -205,6 +210,7 @@ public final class ProcessConverter {
       convertSequenceFlow(f, target, ctx);
     }
     fixGateways(target, ctx);
+    StartPatterns.apply(source, target, ctx);
     wireIncomingOutgoing(target, ctx);
   }
 
@@ -219,7 +225,16 @@ public final class ProcessConverter {
       return;
     }
     Element flow = ctx.bpmn("sequenceFlow");
-    flow.setAttribute("id", ctx.claimId(src.getAttribute("id")));
+    String flowId = src.getAttribute("id");
+    if (ctx.isUsed(flowId)) {
+      String unique = ctx.uniqueId(flowId);
+      ctx.report(src, Level.INFO, "Id '" + flowId + "' is used twice in the Oracle model (allowed per scope in Oracle, "
+          + "not in Camunda); this flow was renamed to '" + unique + "'.");
+      flowId = unique;
+    } else {
+      ctx.claimId(flowId);
+    }
+    flow.setAttribute("id", flowId);
     String name = attr(src, "name");
     if (name != null && !name.equals(src.getAttribute("id"))) {
       flow.setAttribute("name", name); // Oracle repeats the id as name; skip that noise

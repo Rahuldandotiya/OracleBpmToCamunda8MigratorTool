@@ -98,7 +98,8 @@ public final class Camunda8ModelValidator {
         }
         continue;
       }
-      if (Set.of("laneSet", "extensionElements", "documentation").contains(kind)) {
+      if (Set.of("laneSet", "extensionElements", "documentation", "incoming", "outgoing",
+          "multiInstanceLoopCharacteristics", "standardLoopCharacteristics", "loopCharacteristics").contains(kind)) {
         continue;
       }
       if (!SUPPORTED_NODES.contains(kind)) {
@@ -174,8 +175,21 @@ public final class Camunda8ModelValidator {
             issues.add("Error end event " + id + " needs an error reference");
           }
         }
-        case "timerEventDefinition", "terminateEventDefinition", "escalationEventDefinition",
-            "compensateEventDefinition" -> { }
+        case "timerEventDefinition" -> {
+          for (Element t : children(d, Ns.BPMN, null)) {
+            String v = t.getTextContent().trim();
+            boolean ok = switch (t.getLocalName()) {
+              case "timeCycle" -> v.startsWith("=") || v.matches("^R\\d*/.+") || v.split("\\s+").length >= 5;
+              case "timeDuration" -> v.startsWith("=") || v.startsWith("P");
+              case "timeDate" -> v.startsWith("=") || v.matches("^\\d{4}-\\d{2}-\\d{2}T.*");
+              default -> true;
+            };
+            if (!ok) {
+              issues.add("Timer " + t.getLocalName() + " on " + id + " is not valid for Camunda: '" + v + "'");
+            }
+          }
+        }
+        case "terminateEventDefinition", "escalationEventDefinition", "compensateEventDefinition" -> { }
         default -> issues.add("Event definition " + dk + " on " + id + " is not supported");
       }
     }
