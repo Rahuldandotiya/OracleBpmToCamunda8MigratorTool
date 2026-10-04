@@ -14,7 +14,13 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { BpmnModdle } = await import('bpmn-moddle');
+// bpmn-moddle 10+ has a named export, 9.x and older a default export; accept both
+const bpmnModdleModule = await import('bpmn-moddle');
+const BpmnModdle = bpmnModdleModule.BpmnModdle || bpmnModdleModule.default;
+if (typeof BpmnModdle !== 'function') {
+  console.error('bpmn-moddle did not provide a BpmnModdle constructor; run npm install in tools/verify-bpmn');
+  process.exit(2);
+}
 const { Linter } = require('bpmnlint');
 const compat = require('bpmnlint-plugin-camunda-compat');
 const zeebe = require('zeebe-bpmn-moddle/resources/zeebe.json');

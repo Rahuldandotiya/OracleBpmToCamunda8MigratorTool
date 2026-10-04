@@ -5,9 +5,9 @@
   "type": "module",
   "bin": { "verify-bpmn": "verify.mjs" },
   "dependencies": {
-    "bpmn-moddle": "^9.0.1",
-    "bpmnlint": "^11.6.0",
-    "bpmnlint-plugin-camunda-compat": "^2.40.0",
-    "zeebe-bpmn-moddle": "^1.11.0"
+    "bpmn-moddle": "^10.3.1",
+    "bpmnlint": "^11.14.0",
+    "bpmnlint-plugin-camunda-compat": "^2.61.1",
+    "zeebe-bpmn-moddle": "^2.0.0"
   }
 }
