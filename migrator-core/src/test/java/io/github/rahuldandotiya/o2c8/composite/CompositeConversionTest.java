@@ -14,13 +14,21 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** composite.xml → configured service calls, on the synthetic ClaimSettlement project. */
+/**
+ * composite.xml → configured service calls. Outbound references use the hand-written
+ * ClaimSettlement test fixture; inbound adapters use the real loan-origination sample.
+ */
 class CompositeConversionTest {
 
-  static final Path TO_MIGRATE = Path.of("..", "samples", "demo", "processToMigrate");
+  static final Path TO_MIGRATE = Path.of("src", "test", "resources", "fixtures", "claim-settlement");
+  static final Path SAMPLE = Path.of("..", "samples", "oracle-bpm-12c", "loan-origination");
 
   private static ConversionResult convert(String processFileName) throws Exception {
-    DropFolder drop = DropFolder.load(TO_MIGRATE);
+    return convert(TO_MIGRATE, processFileName);
+  }
+
+  private static ConversionResult convert(Path folder, String processFileName) throws Exception {
+    DropFolder drop = DropFolder.load(folder);
     try {
       ProcessFile f = drop.processes().stream()
           .filter(p -> p.path().getFileName().toString().equals(processFileName)).findFirst().orElseThrow();
@@ -105,16 +113,31 @@ class CompositeConversionTest {
   }
 
   @Test
-  void resolvesCallsFromOperationRefAndFromOracleConversation() throws Exception {
-    Path kbIntake = Path.of("..", "samples", "demo", "knowledge-base", "claim-intake");
-    DropFolder drop = DropFolder.load(kbIntake);
+  void readsInboundAdaptersFromTheRealSample() throws Exception {
+    DropFolder drop = DropFolder.load(SAMPLE);
     try {
-      ProcessFile f = drop.processes(ProcessFile.Kind.ORACLE).get(0);
-      String xml = new OracleToCamundaConverter().convert(f, drop.compositeFor(f), KnowledgeBase.empty()).bpmnXml();
-      assertTrue(xml.contains("type=\"soap-fraud-service-check-fraud\""), "CheckFraud uses bpmn:operationRef");
-      assertTrue(xml.contains("type=\"db-claim-db-insert\""), "SaveClaim uses an Oracle conversation");
+      Composite c = drop.composites().get(0);
+      assertEquals("LoanOrigination", c.name());
+      assertTrue(c.services().stream().anyMatch(s -> s.name().equals("ConsumeLoanRequest")
+          && s.binding() instanceof Composite.JcaBinding));
+      assertTrue(c.services().stream().anyMatch(s -> s.name().equals("ReceiveLOEmail")));
     } finally {
       drop.close();
     }
+  }
+
+  @Test
+  void jmsAdapterStartBecomesNamedMessageStart() throws Exception {
+    ConversionResult r = convert(SAMPLE, "LOProcessActivationFromQueue.bpmn");
+    assertTrue(r.bpmnXml().contains("name=\"ConsumeLoanRequest\""));
+    assertEquals(List.of(), r.report().validationIssues());
+    assertEquals(1L, r.report().elementsFrom(Source.COMPOSITE));
+  }
+
+  @Test
+  void emailAdapterStartPointsToTheEmailConnector() throws Exception {
+    ConversionResult r = convert(SAMPLE, "LOProcessActivationFromEmail.bpmn");
+    assertTrue(r.bpmnXml().contains("name=\"ReceiveLOEmail\""));
+    assertTrue(r.report().entries().stream().anyMatch(e -> e.message().contains("Email inbound connector")));
   }
 }
