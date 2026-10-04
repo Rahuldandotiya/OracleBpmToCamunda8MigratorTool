@@ -17,8 +17,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * The real acceptance test: every converted sample must deploy to a Zeebe engine, and converted
- * processes must run end to end. Uses the in-memory engine from zeebe-process-test (no Docker).
+ * The real acceptance test: every process of the loan-origination sample must deploy to a Zeebe
+ * engine, and converted processes must run end to end. Uses the in-memory engine from zeebe-process-test (no Docker).
  */
 @ZeebeProcessTest
 class ZeebeDeploymentTest {
@@ -47,79 +47,74 @@ class ZeebeDeploymentTest {
   }
 
   @Test
-  void migratedDemoWithKnowledgeBaseAndCompositeDeploys() throws Exception {
+  void projectConvertedWithCompositeAndKnowledgeBaseDeploys(@org.junit.jupiter.api.io.TempDir Path tmp)
+      throws Exception {
     var kbDrop = io.github.rahuldandotiya.o2c8.project.DropFolder.load(
-        Path.of("..", "samples", "demo", "knowledge-base"));
-    var drop = io.github.rahuldandotiya.o2c8.project.DropFolder.load(
-        Path.of("..", "samples", "demo", "processToMigrate"));
+        io.github.rahuldandotiya.o2c8.knowledge.KnowledgeBaseFixture.create(tmp));
+    var drop = io.github.rahuldandotiya.o2c8.project.DropFolder.load(SampleConversionTest.SAMPLE_PROJECT);
+    var fixture = io.github.rahuldandotiya.o2c8.project.DropFolder.load(
+        Path.of("src", "test", "resources", "fixtures", "claim-settlement"));
     try {
       var kb = new io.github.rahuldandotiya.o2c8.knowledge.KnowledgeBaseBuilder(camundaUserTasks).build(kbDrop);
-      for (var f : drop.processes()) {
-        String xml = camundaUserTasks.convert(f, drop.compositeFor(f), kb).bpmnXml();
-        DeploymentEvent d = client.newDeployResourceCommand()
-            .addResourceStringUtf8(xml, f.path().getFileName().toString())
-            .send().join();
-        assertEquals(1, d.getProcesses().size(), f.displayPath() + " should deploy");
+      for (var d : List.of(drop, fixture)) {
+        for (var f : d.processes()) {
+          String xml = camundaUserTasks.convert(f, d.compositeFor(f), kb).bpmnXml();
+          DeploymentEvent dep = client.newDeployResourceCommand()
+              .addResourceStringUtf8(xml, f.path().getFileName().toString())
+              .send().join();
+          assertEquals(1, dep.getProcesses().size(), f.displayPath() + " should deploy");
+        }
       }
     } finally {
       kbDrop.close();
       drop.close();
+      fixture.close();
     }
   }
 
   @Test
-  void fnolRunsEndToEnd() throws Exception {
-    deploy("FNOLProcess.bpmn");
+  void asServiceTakesTheDefaultFlowThroughTheSubProcess() throws Exception {
+    deploy("LOProcessAsService.bpmn");
     ProcessInstanceEvent pi = client.newCreateInstanceCommand()
-        .bpmnProcessId("FNOLProcess").latestVersion()
-        .variables(Map.of("FNOLProcessIN", Map.of("FNOL", Map.of("sensitivity", "Regular"))))
+        .bpmnProcessId("LOProcessAsService").latestVersion()
+        .variables(Map.of("LOProcessAsServiceIN", Map.of("loanId", "L-1")))
         .send().join();
     engine.waitForIdleState(Duration.ofSeconds(5));
-    BpmnAssert.assertThat(pi).isWaitingAtElements("ACT10316916088596");
-
-    completeUserTask(Map.of("claim", Map.of("status", "captured")));
-    BpmnAssert.assertThat(pi).isCompleted()
-        .hasVariableWithValue("fNOLProcessINPDO", Map.of("status", "captured")) // task output mapping
-        .hasVariableWithValue("organizationalUnit", "OrganizationalUnit");     // Oracle instance attribute
-  }
-
-  @Test
-  void verificationRoutesByTranslatedXPathCondition() throws Exception {
-    deploy("VerificationProcess.bpmn");
-
-    ProcessInstanceEvent expert = start("VerificationProcess", "Expert");
-    BpmnAssert.assertThat(expert).isWaitingAtElements("ACT10325139620772"); // EVerificationUserTask (default)
-
-    completeUserTask(Map.of("claim", Map.of("FNOL", Map.of("sensitivity", "Expert"))));
-    BpmnAssert.assertThat(expert).isCompleted();
-
-    ProcessInstanceEvent regular = start("VerificationProcess", "Regular");
-    BpmnAssert.assertThat(regular).isWaitingAtElements("ACT10325149764563"); // RVerificationUserTask
-  }
-
-  @Test
-  void customerRejectionThrowsErrorCaughtByEventSubProcess() throws Exception {
-    deploy("CustomerAcceptanceProcess.bpmn");
-    ProcessInstanceEvent pi = client.newCreateInstanceCommand()
-        .bpmnProcessId("CustomerAcceptanceProcess").latestVersion()
-        .variables(Map.of("CustomerAcceptanceProcessIN", Map.of("id", "C-1")))
-        .send().join();
-    engine.waitForIdleState(Duration.ofSeconds(5));
-
-    completeUserTask(Map.of("outcome", "REJECT"));
     BpmnAssert.assertThat(pi)
-        .hasPassedElement("EVT10333471331630") // ThrowCustRejectionFault
-        .hasPassedElement("EVT10333782299420") // RaiseCustomerRejection (signal)
+        .hasPassedElement("ACT10463376437238")  // AllOtherActivities (default flow, condition 1 = 2 is false)
+        .hasNotPassedElement("ACT10463387736533") // ApplicationRejectionTasks
+        .hasPassedElement("EVT10463345141140")  // EndLoanOrigination
+        .isCompleted()
+        .hasVariableWithValue("lOProcessAsServiceINPDO", Map.of("loanId", "L-1"));
+  }
+
+  @Test
+  void oneRequestTwoResponseRoutesByTranslatedCondition() throws Exception {
+    deploy("LOProcessOneRequestTwoResponse.bpmn");
+    ProcessInstanceEvent pi = client.newCreateInstanceCommand()
+        .bpmnProcessId("LOProcessOneRequestTwoResponse").latestVersion()
+        .send().join();
+    engine.waitForIdleState(Duration.ofSeconds(5));
+    BpmnAssert.assertThat(pi)
+        .hasPassedElement("EVT1046384728756")   // NotApproved: condition (1 = 1) is true
+        .hasNotPassedElement("EVT1046382745712") // Approved (default)
         .isCompleted();
   }
 
-  private ProcessInstanceEvent start(String processId, String sensitivity) throws Exception {
+  @Test
+  void humanInitiationWaitsForTheLoanOfficerTask() throws Exception {
+    deploy("LOProcessHumanInitiation.bpmn");
     ProcessInstanceEvent pi = client.newCreateInstanceCommand()
-        .bpmnProcessId(processId).latestVersion()
-        .variables(Map.of("VerificationProcessIN", Map.of("FNOL", Map.of("sensitivity", sensitivity))))
+        .bpmnProcessId("LOProcessHumanInitiation").latestVersion()
+        .variables(Map.of("lOProcessHumanInitiationINPDO", Map.of("amount", 1000)))
         .send().join();
     engine.waitForIdleState(Duration.ofSeconds(5));
-    return pi;
+    BpmnAssert.assertThat(pi).isWaitingAtElements("ACT10471467918889"); // LOProcessHumanInitiationTask
+
+    completeUserTask(Map.of("loanRequest", Map.of("amount", 2000), "outcome", "APPROVE"));
+    BpmnAssert.assertThat(pi).isCompleted()
+        .hasVariableWithValue("lOProcessHumanInitiationINPDO", Map.of("amount", 2000)) // task output mapping
+        .hasVariableWithValue("taskOutcome", "APPROVE");
   }
 
   private void deploy(String sample) throws Exception {

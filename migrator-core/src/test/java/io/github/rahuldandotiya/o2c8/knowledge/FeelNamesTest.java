@@ -36,7 +36,7 @@ class FeelNamesTest {
 
   @Test
   void oracleSuffixes() {
-    assertEquals("INPDO", Keys.oracleSuffix("fNOLProcessINPDO"));
+    assertEquals("INPDO", Keys.oracleSuffix("lOProcessAsServiceINPDO"));
     assertEquals("OUTPD", Keys.oracleSuffix("customerAcceptanceProcessOUTPD"));
     assertNull(Keys.oracleSuffix("claim"));
   }

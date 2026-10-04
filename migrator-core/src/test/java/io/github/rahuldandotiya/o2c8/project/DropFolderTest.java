@@ -13,19 +13,19 @@ import org.junit.jupiter.api.io.TempDir;
 
 class DropFolderTest {
 
-  static final Path DEMO_KB = Path.of("..", "samples", "demo", "knowledge-base");
+  static final Path SAMPLES = Path.of("..", "samples", "oracle-bpm-12c");
 
   @Test
-  void classifiesOracleAndCamundaModelsAndFindsComposites() throws Exception {
-    DropFolder d = DropFolder.load(DEMO_KB);
+  void classifiesOracleModelsAndFindsComposites() throws Exception {
+    DropFolder d = DropFolder.load(SAMPLES);
     try {
-      assertEquals(5, d.processes(ProcessFile.Kind.ORACLE).size());
-      assertEquals(5, d.processes(ProcessFile.Kind.CAMUNDA8).size());
+      assertEquals(9, d.processes(ProcessFile.Kind.ORACLE).size());
+      assertEquals(0, d.processes(ProcessFile.Kind.CAMUNDA8).size());
       assertEquals(1, d.composites().size());
-      ProcessFile intake = d.processes(ProcessFile.Kind.ORACLE).stream()
-          .filter(p -> p.processIds().contains("ClaimIntakeProcess")).findFirst().orElseThrow();
-      assertEquals("claim-intake", intake.group());
-      assertTrue(d.compositeFor(intake).isPresent());
+      ProcessFile schedule = d.processes(ProcessFile.Kind.ORACLE).stream()
+          .filter(p -> p.processIds().contains("LOProcessSchedule")).findFirst().orElseThrow();
+      assertEquals("loan-origination", schedule.group());
+      assertTrue(d.compositeFor(schedule).isPresent());
     } finally {
       d.close();
     }
@@ -33,8 +33,8 @@ class DropFolderTest {
 
   @Test
   void readsProjectsInsideZipArchives(@TempDir Path tmp) throws Exception {
-    Path project = DEMO_KB.resolve("claim-intake/ClaimIntake");
-    Path zip = tmp.resolve("ClaimIntake.zip");
+    Path project = SAMPLES.resolve("loan-origination/LoanOrigination");
+    Path zip = tmp.resolve("LoanOrigination.zip");
     try (OutputStream os = Files.newOutputStream(zip); ZipOutputStream z = new ZipOutputStream(os);
         var files = Files.walk(project)) {
       for (Path f : files.filter(Files::isRegularFile).toList()) {
@@ -45,9 +45,9 @@ class DropFolderTest {
     }
     DropFolder d = DropFolder.load(tmp);
     try {
-      assertEquals(1, d.processes(ProcessFile.Kind.ORACLE).size());
+      assertEquals(9, d.processes(ProcessFile.Kind.ORACLE).size());
       assertEquals(1, d.composites().size());
-      assertEquals("ClaimIntake", d.processes().get(0).group());
+      assertEquals("LoanOrigination", d.processes().get(0).group());
       assertTrue(d.compositeFor(d.processes().get(0)).isPresent());
     } finally {
       d.close();

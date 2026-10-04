@@ -78,7 +78,7 @@ public final class Keys {
         .map(OracleExtensions.TypeRef::name).orElse(null);
   }
 
-  /** Oracle's generated data object suffix: fNOLProcessINPDO → INPDO, xOUTPD → OUTPD; null if none. */
+  /** Oracle's generated data object suffix: lOProcessAsServiceINPDO → INPDO, xOUTPD → OUTPD; null if none. */
   public static String oracleSuffix(String name) {
     java.util.regex.Matcher m = java.util.regex.Pattern.compile("[a-z0-9]([A-Z]{3,})$").matcher(name);
     return m.find() ? m.group(1) : null;

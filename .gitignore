@@ -20,4 +20,3 @@ knowledge-base/*
 !knowledge-base/README.md
 processToMigrate/*
 !processToMigrate/README.md
-samples/demo/camunda8-output/

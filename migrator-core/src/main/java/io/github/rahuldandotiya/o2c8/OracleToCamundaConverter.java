@@ -28,8 +28,8 @@ import org.w3c.dom.Element;
  * Entry point: converts one Oracle BPM {@code .bpmn} file into a Camunda 8 BPMN model plus a report.
  *
  * <pre>{@code
- * ConversionResult r = new OracleToCamundaConverter().convert(Path.of("FNOLProcess.bpmn"));
- * Files.writeString(Path.of("out/FNOLProcess.bpmn"), r.bpmnXml());
+ * ConversionResult r = new OracleToCamundaConverter().convert(Path.of("LOProcessSchedule.bpmn"));
+ * Files.writeString(Path.of("out/LOProcessSchedule.bpmn"), r.bpmnXml());
  * }</pre>
  */
 public final class OracleToCamundaConverter {

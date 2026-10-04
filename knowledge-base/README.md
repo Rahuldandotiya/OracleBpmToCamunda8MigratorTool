@@ -17,15 +17,16 @@ helps, for example:
 
 ```
 knowledge-base/
-  claims-fnol/
-    oracle/FNOLProcess.bpmn
-    camunda/FNOLProcess.bpmn
-  claim-intake/
-    ClaimIntake/SOA/composite.xml ...      (whole Oracle project)
-    camunda/ClaimIntakeProcess.bpmn
+  loan-as-service/
+    oracle/LOProcessAsService.bpmn
+    camunda/LOProcessAsService.bpmn
+  loan-origination/
+    LoanOrigination/SOA/composite.xml ...  (whole Oracle project)
+    camunda/LOProcessHumanInitiation.bpmn
 ```
 
-See `samples/demo/knowledge-base` for a complete example.
+A pair is useful as soon as the Camunda model contains decisions your team made after the
+automatic conversion (renamed variables, candidate groups, forms, job types, connector settings).
 
 Contents of this folder (except this README) are ignored by git, so client models are not
 pushed by accident.
