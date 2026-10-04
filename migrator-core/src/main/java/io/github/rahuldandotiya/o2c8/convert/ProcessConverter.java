@@ -142,7 +142,7 @@ public final class ProcessConverter {
           p.map(v -> v[1])
               .orElseGet(
                   () -> {
-                    Element host = byId(source, src.getAttribute("attachedToRef"));
+                    Element host = byId(source, io.github.rahuldandotiya.o2c8.convert.elements.EventConverter.localRef(src.getAttribute("attachedToRef")));
                     return host == null ? 0 : OracleExtensions.of(host).position().map(v -> v[1]).orElse(0d);
                   });
       LaneInfo l = laneAt(lanes, y);

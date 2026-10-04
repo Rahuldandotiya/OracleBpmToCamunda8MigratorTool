@@ -68,7 +68,7 @@ public final class EventConverter implements ElementConverter {
       e.setAttribute("isInterrupting", String.valueOf(!"false".equals(source.getAttribute("isInterrupting"))));
     }
     if (kind.equals("boundaryEvent")) {
-      e.setAttribute("attachedToRef", source.getAttribute("attachedToRef"));
+      e.setAttribute("attachedToRef", localRef(source.getAttribute("attachedToRef")));
       e.setAttribute("cancelActivity", String.valueOf(!"false".equals(source.getAttribute("cancelActivity"))));
     }
 
@@ -223,9 +223,9 @@ public final class EventConverter implements ElementConverter {
                 + "(Oracle correlated via conversation/correlation sets).");
       }
     } else {
-      // Zeebe implements message throw events with a job worker
-      Element md = eventDefinition(ctx, e, "message");
-      md.setAttribute("messageRef", ctx.message(name));
+      // Zeebe implements message throw events with a job worker; they reference no bpmn:message
+      // (a referenced message would need a subscription, which only catch events have)
+      eventDefinition(ctx, e, "message");
       Element td = ctx.addZeebe(e, "taskDefinition");
       td.setAttribute("type", ActivityConverter.jobType("send-" + name));
       ctx.report(source, Level.PARTIAL,
@@ -236,7 +236,8 @@ public final class EventConverter implements ElementConverter {
 
   private void timer(Element source, Element def, Element e, ConversionContext ctx) {
     Element td = eventDefinition(ctx, e, "timer");
-    for (String k : new String[] {"timeDate", "timeDuration", "timeCycle"}) {
+    for (String kind : new String[] {"timeDate", "timeDuration", "timeCycle"}) {
+      String k = kind;
       Optional<Element> t = child(def, Ns.BPMN, k);
       if (t.isEmpty()) {
         continue;
@@ -269,6 +270,33 @@ public final class EventConverter implements ElementConverter {
           }
         }
       }
+      java.util.Set<String> allowed = allowedTimerProperties(e, parent(e));
+      if (!allowed.contains(k)) {
+        java.util.regex.Matcher iso = java.util.regex.Pattern.compile("^R(\\d*)/(P.+)$").matcher(value);
+        if (k.equals("timeCycle") && iso.matches() && allowed.contains("timeDuration")) {
+          boolean repeats = !iso.group(1).equals("1") && text.replaceAll("^['\"]|['\"]$", "").trim().startsWith("R");
+          k = "timeDuration";
+          value = iso.group(2);
+          note = "Oracle timer cycle used as a delay: waits " + value + " once (timeDuration)";
+          if (repeats) {
+            level = level == Level.AUTO ? Level.PARTIAL : level;
+            note += ". Oracle repeats it, but this event type fires only once in Camunda 8; "
+                + "use a non-interrupting boundary timer or a loop if the repetition matters";
+          }
+        } else if (k.equals("timeDuration") && value.startsWith("P") && allowed.contains("timeCycle")) {
+          k = "timeCycle";
+          value = "R1/" + value;
+          level = level == Level.AUTO ? Level.PARTIAL : level;
+          note = "Timer duration on a start event became cycle '" + value + "' (fires once, counted from deployment)";
+        } else {
+          String fallback = allowed.contains("timeDuration") ? "timeDuration" : "timeCycle";
+          note = "Timer " + k + " '" + value + "' is not allowed on this event in Camunda 8 (allowed: "
+              + String.join(", ", allowed) + "); placeholder written";
+          k = fallback;
+          value = fallback.equals("timeDuration") ? "PT1H" : "R/PT1H";
+          level = Level.MANUAL;
+        }
+      }
       Element n = ctx.bpmn(k);
       n.setAttributeNS(Ns.XSI, "xsi:type", "bpmn:tFormalExpression");
       n.setTextContent(value);
@@ -286,6 +314,48 @@ public final class EventConverter implements ElementConverter {
     n.setTextContent("PT1H");
     td.appendChild(n);
     ctx.report(source, Level.MANUAL, "Oracle timer settings not found in standard BPMN; placeholder duration PT1H written.");
+  }
+
+  /**
+   * Timer properties Zeebe accepts on an event (same matrix as Camunda's own lint rules):
+   * start events take a cycle (unless interrupting in an event sub-process), a date, and a duration
+   * only inside an event sub-process; boundary events a duration, a date, and a cycle only when
+   * non-interrupting; intermediate catch events a duration or a date.
+   */
+  public static java.util.Set<String> allowedTimerProperties(Element event, Element container) {
+    boolean inEventSubProcess = container != null && container.getLocalName().equals("subProcess")
+        && "true".equals(container.getAttribute("triggeredByEvent"));
+    return switch (event.getLocalName()) {
+      case "startEvent" -> {
+        boolean interrupting = !"false".equals(event.getAttribute("isInterrupting"));
+        java.util.Set<String> s = new java.util.LinkedHashSet<>();
+        if (!interrupting || !inEventSubProcess) {
+          s.add("timeCycle");
+        }
+        s.add("timeDate");
+        if (inEventSubProcess) {
+          s.add("timeDuration");
+        }
+        yield s;
+      }
+      case "boundaryEvent" -> "false".equals(event.getAttribute("cancelActivity"))
+          ? java.util.Set.of("timeDuration", "timeDate", "timeCycle")
+          : java.util.Set.of("timeDuration", "timeDate");
+      default -> java.util.Set.of("timeDuration", "timeDate");
+    };
+  }
+
+  private static Element parent(Element e) {
+    return e.getParentNode() instanceof Element p ? p : null;
+  }
+
+  /** "bpmn:ACT1" → "ACT1": Oracle sometimes writes element references as QNames. */
+  public static String localRef(String ref) {
+    if (ref == null) {
+      return null;
+    }
+    int i = ref.indexOf(':');
+    return i >= 0 && !ref.contains("://") ? ref.substring(i + 1) : ref;
   }
 
   private static void copyRefAttribute(Element from, Element to, String defType) {

@@ -24,10 +24,24 @@ jobs:
       - name: Build and test
         run: mvn -B -ntp verify
 
-      - name: Convert samples with the CLI
+      - name: Convert the sample and the test fixtures with the CLI
         run: |
           java -jar migrator-cli/target/oracle2c8.jar convert samples/oracle-bpm-12c -o camunda8-output --fail-on-issues
+          java -jar migrator-cli/target/oracle2c8.jar convert migrator-core/src/test/resources/fixtures -o camunda8-output/fixtures --fail-on-issues
+          java -jar migrator-cli/target/oracle2c8.jar analyze samples/oracle-bpm-12c -o camunda8-output
           cat camunda8-output/conversion-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The same checks Camunda Modeler applies: bpmn-moddle import with the Zeebe extension,
+      # then Camunda's own lint rules (bpmnlint-plugin-camunda-compat) for the target version
+      - name: Verify converted models like Camunda Modeler
+        working-directory: tools/verify-bpmn
+        run: |
+          npm install --no-audit --no-fund
+          node verify.mjs --platform 8.6 ../../camunda8-output
 
       - uses: actions/upload-artifact@v4
         with:

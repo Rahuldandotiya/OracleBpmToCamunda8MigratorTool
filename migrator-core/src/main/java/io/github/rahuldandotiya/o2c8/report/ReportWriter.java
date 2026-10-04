@@ -24,12 +24,19 @@ public final class ReportWriter {
   public static String markdown(List<ConversionReport> reports, KnowledgeBase kb) {
     StringBuilder sb = new StringBuilder();
     sb.append("# Oracle BPM to Camunda 8 conversion report\n\n");
-    sb.append("| Source file | Elements | Auto | Partial | Manual | Automated | From knowledge base | From composite | Validation |\n");
-    sb.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n");
+    sb.append("**").append(summary(reports)).append("**\n\n");
+    sb.append("| Source file | Status | Elements | Auto | Partial | Manual | Automated | From knowledge base | From composite | Validation |\n");
+    sb.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n");
     for (ConversionReport r : reports) {
+      if (r.status() == ConversionReport.Status.FAILED) {
+        sb.append("| ").append(md(r.sourceName())).append(" | FAILED | | | | | | | | ")
+            .append(md(r.failure())).append(" |\n");
+        continue;
+      }
       Map<Level, Integer> c = r.elementCounts();
       int total = c.values().stream().mapToInt(Integer::intValue).sum();
       sb.append("| ").append(md(r.sourceName()))
+          .append(" | ").append(r.status() == ConversionReport.Status.CONVERTED ? "Converted" : "Converted, with issues")
           .append(" | ").append(total)
           .append(" | ").append(c.get(Level.AUTO))
           .append(" | ").append(c.get(Level.PARTIAL))
@@ -66,6 +73,11 @@ public final class ReportWriter {
 
     for (ConversionReport r : reports) {
       sb.append("\n## ").append(md(r.sourceName())).append("\n\n");
+      if (r.status() == ConversionReport.Status.FAILED) {
+        sb.append("**Not converted.** ").append(md(r.failure()))
+            .append("\n\nNo Camunda model was written for this file. The other files were converted normally.\n");
+        continue;
+      }
       if (!r.validationIssues().isEmpty()) {
         sb.append("**Validation issues**\n\n");
         r.validationIssues().forEach(i -> sb.append("- ").append(md(i)).append('\n'));
@@ -82,6 +94,14 @@ public final class ReportWriter {
               .append(" |\n"));
     }
     return sb.toString();
+  }
+
+  /** One-line outcome, e.g. "9 file(s): 8 converted, 0 with validation issues, 1 failed". */
+  public static String summary(List<ConversionReport> reports) {
+    long ok = reports.stream().filter(r -> r.status() == ConversionReport.Status.CONVERTED).count();
+    long issues = reports.stream().filter(r -> r.status() == ConversionReport.Status.CONVERTED_WITH_ISSUES).count();
+    long failed = reports.stream().filter(r -> r.status() == ConversionReport.Status.FAILED).count();
+    return reports.size() + " file(s): " + ok + " converted, " + issues + " with validation issues, " + failed + " failed";
   }
 
   /** Markdown section describing what the knowledge base contains. */
@@ -133,6 +153,10 @@ public final class ReportWriter {
       Map<Level, Integer> c = r.elementCounts();
       Map<String, Object> m = new LinkedHashMap<>();
       m.put("source", r.sourceName());
+      m.put("status", r.status().name());
+      if (r.failure() != null) {
+        m.put("failure", r.failure());
+      }
       m.put("automationPercent", r.automationPercent());
       Map<String, Object> counts = new LinkedHashMap<>();
       counts.put("auto", c.get(Level.AUTO));
@@ -168,6 +192,16 @@ public final class ReportWriter {
       rs.add(m);
     }
     Map<String, Object> root = new LinkedHashMap<>();
+    Map<String, Object> summary = new LinkedHashMap<>();
+    summary.put("files", reports.size());
+    for (ConversionReport.Status st : ConversionReport.Status.values()) {
+      summary.put(switch (st) {
+        case CONVERTED -> "converted";
+        case CONVERTED_WITH_ISSUES -> "convertedWithIssues";
+        case FAILED -> "failed";
+      }, reports.stream().filter(r -> r.status() == st).count());
+    }
+    root.put("summary", summary);
     root.put("reports", rs);
     return Json.write(root);
   }

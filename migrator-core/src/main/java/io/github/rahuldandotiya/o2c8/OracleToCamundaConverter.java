@@ -35,7 +35,7 @@ import org.w3c.dom.Element;
 public final class OracleToCamundaConverter {
 
   public static final String EXPORTER = "Oracle BPM to Camunda 8 Migrator";
-  public static final String EXPORTER_VERSION = "0.2.0";
+  public static final String EXPORTER_VERSION = "0.3.0";
 
   private final ConverterOptions options;
   private final ElementConverters converters;
@@ -130,7 +130,8 @@ public final class OracleToCamundaConverter {
       DiagramGenerator.generate(processes.get(i), targets[i], defs);
     }
 
-    List<String> issues = Camunda8ModelValidator.validate(target);
+    List<String> issues = new java.util.ArrayList<>(Camunda8ModelValidator.validate(target));
+    issues.addAll(io.github.rahuldandotiya.o2c8.validate.BpmnSchemaValidator.validate(target));
     issues.forEach(report::addValidationIssue);
     return new ConversionResult(sourceName, target, report, source);
   }

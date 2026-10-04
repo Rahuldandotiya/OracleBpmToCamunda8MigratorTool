@@ -6,6 +6,8 @@
 `oracle2c8` converts Oracle BPM 11g/12c processes, or whole Oracle SOA/BPM projects, into
 **executable Camunda 8 BPMN** that opens in Camunda Modeler and deploys to Zeebe. Each run writes a
 migration report that tells you, element by element, what was converted and what still needs a person.
+Use it from the command line, or through a **local web UI**: upload, convert, compare side by
+side, tick off a review checklist, download, or upload the models straight to **Camunda Web Modeler**.
 
 ![Oracle BPM process (left) and the converted Camunda 8 process (right)](images/compare/LOProcessMultiEvent.png)
 
@@ -19,8 +21,13 @@ events in Camunda 8 (right). Zeebe cannot start a process from an event-based ga
 - [Why this tool](#why-this-tool)
 - [Results on a real Oracle project](#results-on-a-real-oracle-project)
 - [Quick start](#quick-start)
+- [Web UI](#web-ui)
+- [Uploading to Camunda Web Modeler](#uploading-to-camunda-web-modeler)
 - [Migrating your own processes](#migrating-your-own-processes)
 - [Learning from finished migrations (knowledge base)](#learning-from-finished-migrations-knowledge-base)
+- [Effort estimate (analyze)](#effort-estimate-analyze)
+- [How the output is checked](#how-the-output-is-checked)
+- [When a file cannot be converted](#when-a-file-cannot-be-converted)
 - [Command reference](#command-reference)
 - [What gets converted](#what-gets-converted)
 - [Reading the migration report](#reading-the-migration-report)
@@ -45,7 +52,9 @@ XPath and Oracle extensions, and their service calls are defined outside the pro
 | Inbound JMS / email / file adapters | Named message start events plus a hint on which Camunda inbound connector to use |
 | Oracle schedules and timers | Zeebe cron expressions and valid ISO 8601 cycles |
 | Every team finishes migrations differently | Learns your team's decisions from already finished migrations and applies them to new processes |
-| "How much is left?" | Rates every element AUTO, PARTIAL or MANUAL and validates the result against Camunda 8 rules |
+| "How much is left?" | Rates every element AUTO, PARTIAL or MANUAL, and estimates the remaining effort in hours |
+| "Will it import?" | Checks every model against the BPMN 2.0 schema and Camunda 8 rules; CI also runs Camunda's own Modeler checks |
+| Reviewing and handing over | Web UI with Oracle-vs-Camunda diagrams, a review checklist, zip download and upload to Camunda Web Modeler |
 
 The core library has **no runtime dependencies** (only the JDK). XML parsing is hardened against
 XXE, and archive reading against zip-slip and zip bombs.
@@ -93,7 +102,10 @@ cd OracleBpmToCamunda8MigratorTool
 # 1. Build (creates migrator-cli/target/oracle2c8.jar and runs the tests)
 mvn -B verify
 
-# 2. Convert the bundled sample project
+# 2a. Start the web UI, then open http://localhost:8080
+java -jar migrator-cli/target/oracle2c8.jar serve
+
+# 2b. ...or convert the bundled sample from the command line
 java -jar migrator-cli/target/oracle2c8.jar convert samples/oracle-bpm-12c -o camunda8-output
 ```
 
@@ -102,6 +114,7 @@ java -jar migrator-cli/target/oracle2c8.jar convert samples/oracle-bpm-12c -o ca
   loan-origination/LoanOrigination/SOA/processes/LOProcessActivationFromEmail.bpmn  25% automated
   ...
   loan-origination/LoanOrigination/SOA/processes/LOProcessSendReceive.bpmn  60% automated
+9 file(s): 9 converted, 0 with validation issues, 0 failed.
 Wrote 9 model(s) and conversion-report.md to camunda8-output
 ```
 
@@ -111,7 +124,90 @@ Wrote 9 model(s) and conversion-report.md to camunda8-output
 > Tip: to build faster without the tests, use `mvn -B package -DskipTests`.
 
 **In IntelliJ IDEA:** open the folder as a Maven project and use the shared run configurations
-**Convert samples (oracle2c8)** and **Migrate (knowledge-base + processToMigrate)**.
+**Web UI (oracle2c8 serve)**, **Convert samples (oracle2c8)** and **Migrate (knowledge-base + processToMigrate)**.
+
+## Web UI
+
+```bash
+java -jar migrator-cli/target/oracle2c8.jar serve            # http://localhost:8080
+java -jar migrator-cli/target/oracle2c8.jar serve --port 9000 --config my.properties
+```
+
+The UI runs on your machine. Files are uploaded to the local server only, kept in a temporary
+session folder and deleted when the session has been idle for a while
+(`server.workspace-ttl-minutes`) or when the server stops.
+
+![Upload and convert](images/ui/upload.png)
+
+1. **Upload** the processes to convert: single `.bpmn` files, whole project folders (drag and drop
+   works) or `.zip` / `.sar` archives.
+2. Optionally, **upload finished migrations**, i.e. Oracle processes plus the Camunda 8 models your
+   team completed. They are used for this run. Click **Save to knowledge base** to keep them for
+   every later run, including the command line.
+3. Click **Convert to Camunda 8**, or **Analyze effort** to also get an effort estimate.
+
+![Results with effort estimate](images/ui/results.png)
+
+Click a process to compare the Oracle diagram with the converted model, and work through the
+**review checklist**: every PARTIAL or MANUAL item, with a checkbox and a comment field. The
+checklist is included in the download.
+
+![Oracle and Camunda 8 side by side](images/ui/compare.png)
+
+![Review checklist](images/ui/review.png)
+
+**Download all (.zip)** gives you the converted models (same folder structure as the upload), the
+conversion report, the review checklist and, after Analyze, the effort estimate. The **Knowledge
+base** tab lists the saved finished migrations and the rules learned from them. The **Settings**
+tab shows the active configuration and has a **Test connection** button for Web Modeler.
+
+The Camunda diagrams are drawn with [bpmn-js](https://github.com/bpmn-io/bpmn-js), loaded from a
+CDN when the browser is online. A copy is bundled in the jar, so the UI also works offline.
+
+Security: the server listens on `127.0.0.1` only (unless you set `server.host`), accepts requests
+only for its own host name, and rejects state-changing requests that do not come from its own page.
+Uploads are checked against path traversal and size limits (`server.max-upload-mb`, `server.max-files`).
+
+## Uploading to Camunda Web Modeler
+
+The UI can upload the converted models into a folder of a Web Modeler project, so your team can
+finish them there. **Nothing is deployed.** Uploading again updates the existing files (new
+revision) instead of creating duplicates. SaaS and Self-Managed are both supported, through the
+[Web Modeler REST API](https://docs.camunda.io/docs/apis-tools/web-modeler-api/).
+
+1. Create an API client with Web Modeler access (permissions **Create**, **Read** and **Update**):
+   - **SaaS:** Console > Organization > Administration API > Create new credentials.
+   - **Self-Managed:** Identity > Applications > add an M2M application, then grant Web Modeler API access.
+2. Copy the template and fill in the credentials. `application.properties` is git-ignored.
+
+   ```bash
+   cp application.properties.example application.properties
+   ```
+
+   ```properties
+   camunda.webmodeler.mode=saas                 # or self-managed
+   camunda.webmodeler.client-id=<client id>
+   camunda.webmodeler.client-secret=${CAMUNDA_WEBMODELER_SECRET}   # or the secret itself
+   camunda.webmodeler.project-name=Oracle BPM migration           # found or created
+   # camunda.webmodeler.project-id=<existing project id>          # alternative to the name
+   ```
+
+   For Self-Managed, also set `camunda.webmodeler.api-url`, `token-url` and, if needed, `audience`
+   or `scope`. The template lists the defaults for both modes.
+3. Restart `oracle2c8 serve`, open **Settings** and click **Test connection**.
+
+Every problem produces a message that says what to fix:
+
+| Situation | Message |
+| --- | --- |
+| No credentials configured | Web Modeler is not configured: set `camunda.webmodeler.client-id` and `client-secret` in application.properties |
+| Server not reachable (DNS, refused, timeout, VPN) | Cannot reach `<url>`: the host name is unknown / the connection was refused / timed out |
+| Wrong client id or secret | Camunda rejected the credentials, plus where the client is created for SaaS or Self-Managed |
+| Client lacks Web Modeler permissions | The API client is not allowed to do this: give it Create, Read and Update |
+| Project id not found | Web Modeler could not find the project: check `camunda.webmodeler.project-id` |
+
+Note: Camunda has deprecated Web Modeler API v1 in 8.10 (removal planned for 8.12) in favour of a
+new API. The client is isolated in one class (`WebModelerClient`), so it can be moved over in one place.
 
 ## Migrating your own processes
 
@@ -171,6 +267,67 @@ oracle2c8 learn knowledge-base -o knowledge-base.json   # review the learned rul
 oracle2c8 evaluate knowledge-base                       # leave-one-out: how many edits it saves
 ```
 
+## Effort estimate (analyze)
+
+```bash
+java -jar migrator-cli/target/oracle2c8.jar analyze <files or folders> [-o folder] [--kb knowledge-base]
+```
+
+Converts in memory and writes `migration-analysis.md` and `.json` (no models): per process, its
+size and complexity, its automation level and the follow-up work. The work is grouped by kind,
+with an hour weight per kind:
+
+| Kind of work | Default hours per item |
+| --- | --: |
+| Camunda form to build for a user task | 4 |
+| Job worker to implement (service, script, send task, message throw) | 6 |
+| Inbound trigger to set up (JMS, email, file, DB adapter) | 6 |
+| Message correlation key to define | 1 |
+| Undefined (abstract) task to decide | 2 |
+| Expression, mapping or timer to rewrite by hand | 1 |
+| Unsupported construct to remodel | 4 |
+| Secret to create | 0.5 |
+| Other item to review | 0.5 |
+| File that could not be converted | 16 |
+| Testing and deployment, per process | 4 |
+
+Change the weights with `analyze.hours.*` in `application.properties`. The result is a planning aid
+for scoping a migration, not a quote. The web UI shows the same estimate (**Analyze effort**).
+
+## How the output is checked
+
+A model is only useful if Camunda accepts it, so every model goes through four checks:
+
+| Check | Where | What it catches |
+| --- | --- | --- |
+| BPMN 2.0 XML schema (official OMG XSD, bundled) | Every conversion | Unknown elements, missing required attributes, wrong structure |
+| Camunda 8 rules (built in) | Every conversion | Unsupported elements, missing job types, invalid timers per event type, unresolved references, messages without correlation keys, conditions that are not FEEL |
+| Camunda Modeler import and Camunda's lint rules ([`tools/verify-bpmn`](tools/verify-bpmn)) | CI | What Modeler's own parser and problems panel would report, for the target Camunda version |
+| Deployment to a Zeebe engine (`ZeebeDeploymentTest`) | `mvn verify` | Anything the engine would reject, plus end-to-end runs of sample processes |
+
+Issues from the first two checks appear in the report and in the UI as **validation issues**. A
+model with issues is still written, but clearly flagged. The schema, Camunda-rule and Modeler checks
+were run on all 83 models converted from the Packt companion repository: all pass.
+
+## When a file cannot be converted
+
+Each file is converted on its own. If one fails (broken XML, a `DOCTYPE` declaration, which is
+refused for security, an unexpected model, or a bug in the converter), the others are still converted:
+
+- the file is listed as **FAILED** in the console, in `conversion-report.md` / `.json` and in the
+  UI, with the reason;
+- no model is written for it;
+- the run ends with a summary such as `9 file(s): 8 converted, 0 with validation issues, 1 failed`.
+
+Exit codes of the command line:
+
+| Code | Meaning |
+| --: | --- |
+| 0 | All files converted |
+| 1 | Usage or input error (nothing to convert, unknown option, missing folder) |
+| 2 | Validation issues found (only with `--fail-on-issues`) |
+| 3 | One or more files could not be converted |
+
 ## Command reference
 
 `oracle2c8` is the jar `migrator-cli/target/oracle2c8.jar`; run it with `java -jar`.
@@ -181,6 +338,8 @@ oracle2c8 evaluate knowledge-base                       # leave-one-out: how man
 | `oracle2c8 convert <files/folders...> [-o dir] [--kb folder-or-json]` | Converts any files, folders or archives you point it at |
 | `oracle2c8 learn <folder> -o knowledge-base.json` | Builds a reviewable knowledge-base file from finished migrations |
 | `oracle2c8 evaluate <folder>` | Leave-one-out test: how many manual edits the knowledge base saves |
+| `oracle2c8 analyze <files/folders...> [-o dir] [--kb ...]` | Effort estimate without writing models |
+| `oracle2c8 serve [--port 8080] [--host 127.0.0.1] [--config file]` | Starts the web UI |
 
 | Option | Meaning |
 | --- | --- |
@@ -189,7 +348,9 @@ oracle2c8 evaluate knowledge-base                       # leave-one-out: how man
 | `--user-tasks camunda\|job-worker` | Camunda user tasks (default), or job-worker based user tasks for older setups |
 | `--interface-events none\|message` | How Oracle "define interface" start events are converted |
 | `--platform-version 8.6.0` | Camunda version written into the models |
-| `--fail-on-issues` | Exit with code 1 if a model has validation issues (useful in CI) |
+| `--fail-on-issues` | Exit with code 2 if a model has validation issues (useful in CI) |
+| `--config <file>` | Settings file for `serve` and `analyze` (default `./application.properties` if present) |
+| `--port <n>` / `--host <address>` | Web UI address (default `127.0.0.1:8080`) |
 
 ## What gets converted
 
@@ -246,13 +407,18 @@ migrator-core/        conversion engine (JDK only)
   composite/          composite.xml, WADL, WSDL, JCA, config plans, service call resolution
   connectors/         REST connector / worker / call activity mapping, secret names
   knowledge/          pairing, learning, applying, evaluation, knowledge-base JSON
-  layout/             BPMN diagram generator
-  validate/           offline Camunda 8 rule checks
+  layout/             BPMN diagram generator, Oracle diagram renderer (SVG)
+  validate/           Camunda 8 rule checks, BPMN 2.0 schema check (bundled XSDs)
+  migration/          run over a drop folder with per-file failure handling, effort estimate
   report/             Markdown / JSON report
 migrator-cli/         the oracle2c8 command line (shaded jar)
+  web/                web UI server, settings (application.properties), Web Modeler client
+  resources/web/      the web page (plain HTML/CSS/JS, bpmn-js viewer bundled for offline use)
+tools/verify-bpmn/    Camunda Modeler import + Camunda lint checks (Node, used in CI)
 samples/oracle-bpm-12c/
   loan-origination/   real Oracle BPM 12c sample project (MIT, see its README)
-images/               Oracle vs Camunda 8 renderings of the sample
+images/               Oracle vs Camunda 8 renderings of the sample, UI screenshots
+application.properties.example   settings template for serve / analyze
 knowledge-base/       drop folder: finished migrations (git-ignored)
 processToMigrate/     drop folder: what to convert (git-ignored)
 ```
@@ -270,14 +436,18 @@ The test suite covers:
 - `composite.xml` mapping, using a small hand-written fixture in
   `migrator-core/src/test/resources/fixtures` for REST/SOAP/adapter references;
 - knowledge-base learning, applying and evaluation, with fixtures built at test time from the sample;
+- per-file failure handling, the effort estimate, the schema check and the Camunda timer rules;
 - archive safety;
-- the CLI.
+- the CLI and the web UI API (uploads, conversion, checklist, zip, knowledge base, security checks);
+- the Web Modeler client against an in-memory fake of the Camunda token endpoint and Web Modeler API
+  (create, update with revision, wrong credentials, missing permissions, unreachable server).
 
 `ZeebeDeploymentTest` deploys every converted model to an in-memory Zeebe engine
 ([zeebe-process-test](https://github.com/camunda/zeebe-process-test), no Docker needed) and runs
 sample processes end to end.
 
-GitHub Actions runs the same build on every push and pull request, then converts the sample with the CLI.
+GitHub Actions runs the same build on every push and pull request, converts the sample and the test
+fixtures with the CLI, and checks every converted model with [`tools/verify-bpmn`](tools/verify-bpmn).
 
 ## Extending the converter
 
