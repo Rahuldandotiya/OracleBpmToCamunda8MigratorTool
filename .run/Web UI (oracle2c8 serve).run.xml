@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Web UI (oracle2c8 serve)" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="io.github.rahuldandotiya.o2c8.cli.Oracle2C8" />
+    <module name="oracle-bpm-to-camunda8-cli" />
+    <option name="PROGRAM_PARAMETERS" value="serve" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

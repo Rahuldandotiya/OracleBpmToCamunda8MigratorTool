@@ -1,0 +1,25 @@
+target/
+camunda8-output/
+*.class
+*.log
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Drop folders: your own models stay local
+knowledge-base/*
+!knowledge-base/README.md
+processToMigrate/*
+!processToMigrate/README.md
+
+# Node tooling for tools/verify-bpmn
+node_modules/

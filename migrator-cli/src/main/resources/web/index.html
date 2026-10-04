@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oracle BPM to Camunda 8 Migrator</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="28" height="28"><rect x="2" y="9" width="11" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><rect x="19" y="9" width="11" height="14" rx="3" fill="currentColor"/><path d="M13 16h6" stroke="currentColor" stroke-width="2"/><path d="M16 13l3 3-3 3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    </span>
+    <div>
+      <h1>Oracle BPM to Camunda 8 Migrator</h1>
+      <p class="sub" id="version">Runs locally · your files stay on this machine</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab active" data-tab="migrate" aria-selected="true">Migrate</button>
+    <button role="tab" class="tab" data-tab="kb" aria-selected="false">Knowledge base <span class="count" id="kbCount"></span></button>
+    <button role="tab" class="tab" data-tab="settings" aria-selected="false">Settings</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============================== MIGRATE ============================== -->
+  <section id="tab-migrate" class="tabpanel">
+    <div class="grid2">
+      <article class="card">
+        <header class="card-h">
+          <h2><span class="step">1</span> Processes to convert</h2>
+          <button class="link" data-clear="migrate" hidden>Clear</button>
+        </header>
+        <div class="drop" data-area="migrate" tabindex="0">
+          <p class="drop-title">Drop Oracle files or project folders here</p>
+          <p class="hint">.bpmn files, whole JDeveloper projects (with composite.xml), or .zip / .sar archives</p>
+          <div class="drop-actions">
+            <label class="btn ghost">Choose files<input type="file" multiple data-pick="migrate" hidden></label>
+            <label class="btn ghost">Choose folder<input type="file" webkitdirectory multiple data-pick="migrate" hidden></label>
+          </div>
+        </div>
+        <div class="filelist" id="list-migrate"></div>
+      </article>
+
+      <article class="card">
+        <header class="card-h">
+          <h2><span class="step">2</span> Finished migrations <span class="optional">optional</span></h2>
+          <button class="link" data-clear="kb" hidden>Clear</button>
+        </header>
+        <div class="drop" data-area="kb" tabindex="0">
+          <p class="drop-title">Drop Oracle processes together with their finished Camunda 8 models</p>
+          <p class="hint">The converter learns your team's decisions from them and applies them to the new processes.</p>
+          <div class="drop-actions">
+            <label class="btn ghost">Choose files<input type="file" multiple data-pick="kb" hidden></label>
+            <label class="btn ghost">Choose folder<input type="file" webkitdirectory multiple data-pick="kb" hidden></label>
+          </div>
+        </div>
+        <div class="filelist" id="list-kb"></div>
+        <form class="inline-form" id="kbSaveForm" hidden>
+          <input type="text" id="kbName" placeholder="Name, e.g. loan-origination" maxlength="80" aria-label="Knowledge-base entry name">
+          <button class="btn" type="submit">Save to knowledge base</button>
+        </form>
+      </article>
+    </div>
+
+    <article class="card options">
+      <h2><span class="step">3</span> Convert</h2>
+      <div class="option-row">
+        <label>User tasks
+          <select id="optUserTasks">
+            <option value="camunda">Camunda user tasks</option>
+            <option value="job-worker">Job-worker user tasks (older setups)</option>
+          </select>
+        </label>
+        <label>Camunda version
+          <select id="optVersion">
+            <option>8.5.0</option><option>8.6.0</option><option>8.7.0</option><option>8.8.0</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="optKb" checked> Use the knowledge base</label>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="btnAnalyze" disabled>Analyze effort</button>
+        <button class="btn primary" id="btnConvert" disabled>Convert to Camunda 8</button>
+      </div>
+    </article>
+
+    <div id="results" hidden>
+      <div class="tiles" id="tiles"></div>
+      <div class="notice" id="runNotes" hidden></div>
+
+      <article class="card" id="analysisCard" hidden>
+        <header class="card-h"><h2>Effort estimate</h2><a class="link" id="dlAnalysis" href="#">migration-analysis.md</a></header>
+        <div id="analysis"></div>
+      </article>
+
+      <article class="card">
+        <header class="card-h">
+          <h2>Converted processes</h2>
+          <div class="actions">
+            <a class="btn" id="dlZip" href="#">Download all (.zip)</a>
+            <a class="link" id="dlReport" href="#">conversion-report.md</a>
+            <a class="link" id="dlChecklist" href="#">review-checklist.md</a>
+          </div>
+        </header>
+        <div class="table-wrap">
+          <table class="files">
+            <thead><tr><th>Process file</th><th>Status</th><th>Automated</th><th class="num">Auto</th><th class="num">Partial</th><th class="num">Manual</th><th>Review</th></tr></thead>
+            <tbody id="fileRows"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-h"><h2>Push to Camunda Web Modeler</h2><span class="pill" id="wmState"></span></header>
+        <p class="hint">Uploads the converted models into a folder of your Web Modeler project so the team can finish them there. Nothing is deployed.</p>
+        <form class="inline-form" id="pushForm">
+          <input type="text" id="pushFolder" maxlength="100" aria-label="Folder name">
+          <button class="btn" type="submit">Upload to Web Modeler</button>
+        </form>
+        <div id="pushResult"></div>
+      </article>
+    </div>
+
+    <article class="card detail" id="detail" hidden>
+      <header class="card-h">
+        <h2 id="detailTitle"></h2>
+        <div class="actions">
+          <a class="link" id="dlModel" href="#">Download .bpmn</a>
+          <button class="link" id="closeDetail">Close</button>
+        </div>
+      </header>
+      <nav class="subtabs" role="tablist">
+        <button class="subtab active" data-sub="compare">Side by side</button>
+        <button class="subtab" data-sub="review">Review checklist <span class="count" id="reviewCount"></span></button>
+        <button class="subtab" data-sub="issues">Validation <span class="count" id="issueCount"></span></button>
+      </nav>
+      <div class="sub" data-subpanel="compare">
+        <div class="compare">
+          <figure><figcaption>Oracle BPM (source)</figcaption><div class="canvas oracle" id="oracleCanvas"></div></figure>
+          <figure><figcaption>Camunda 8 (converted)</figcaption><div class="canvas" id="camundaCanvas"></div></figure>
+        </div>
+      </div>
+      <div class="sub" data-subpanel="review" hidden><ul class="review" id="reviewList"></ul></div>
+      <div class="sub" data-subpanel="issues" hidden><div id="issueList"></div></div>
+    </article>
+  </section>
+
+  <!-- ============================== KNOWLEDGE BASE ============================== -->
+  <section id="tab-kb" class="tabpanel" hidden>
+    <article class="card">
+      <header class="card-h"><h2>Knowledge base</h2><button class="link" id="kbRefresh">Refresh</button></header>
+      <p class="hint">Saved finished migrations. Every conversion (here and with the command line) learns from them.
+        Folder: <code id="kbDir"></code></p>
+      <div id="kbBody"></div>
+    </article>
+  </section>
+
+  <!-- ============================== SETTINGS ============================== -->
+  <section id="tab-settings" class="tabpanel" hidden>
+    <article class="card">
+      <h2>Server</h2>
+      <dl class="kv" id="serverInfo"></dl>
+    </article>
+    <article class="card">
+      <header class="card-h"><h2>Camunda Web Modeler</h2><button class="btn ghost" id="wmTest">Test connection</button></header>
+      <p class="hint">Set the environment variables <code>CAMUNDA_WEBMODELER_MODE</code>, <code>CAMUNDA_WEBMODELER_CLIENT_ID</code> and <code>CAMUNDA_WEBMODELER_CLIENT_SECRET</code> (read through <code>application.properties</code>), then restart the server.</p>
+      <dl class="kv" id="wmInfo"></dl>
+      <div id="wmTestResult"></div>
+    </article>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="busy" id="busy" hidden><div class="spinner"></div><p id="busyText">Working ...</p></div>
+
+<script src="app.js"></script>
+</body>
+</html>

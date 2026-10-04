@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Convert samples (oracle2c8)" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="io.github.rahuldandotiya.o2c8.cli.Oracle2C8" />
+    <module name="oracle-bpm-to-camunda8-cli" />
+    <option name="PROGRAM_PARAMETERS" value="convert samples/oracle-bpm-12c/insurance-claim -o camunda8-output" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
