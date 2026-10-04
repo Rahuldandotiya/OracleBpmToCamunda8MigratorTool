@@ -66,8 +66,17 @@ public final class DataMappings {
   private static List<Mapping> collect(Element source, ConversionContext ctx, boolean input) {
     String assocName = input ? "dataInputAssociation" : "dataOutputAssociation";
     Map<String, String> ioNames = ioNames(source);
+    Set<String> loopRefs = new java.util.HashSet<>();
+    io.github.rahuldandotiya.o2c8.convert.elements.ActivityConverter.multiInstance(source).ifPresent(mi -> {
+      child(mi, Ns.BPMN, "loopDataInputRef").ifPresent(r -> loopRefs.add(r.getTextContent().trim()));
+      child(mi, Ns.BPMN, "loopDataOutputRef").ifPresent(r -> loopRefs.add(r.getTextContent().trim()));
+    });
     List<Mapping> result = new ArrayList<>();
     for (Element assoc : children(source, Ns.BPMN, assocName)) {
+      String own = refText(assoc, input ? "targetRef" : "sourceRef");
+      if (own != null && loopRefs.contains(own)) {
+        continue; // the multi-instance collection is mapped by zeebe:loopCharacteristics
+      }
       List<Element> assignments = children(assoc, Ns.BPMN, "assignment");
       if (assignments.isEmpty()) {
         // plain reference association: sourceRef -> targetRef

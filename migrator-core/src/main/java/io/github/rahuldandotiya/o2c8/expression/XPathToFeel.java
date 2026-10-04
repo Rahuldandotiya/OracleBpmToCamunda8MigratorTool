@@ -405,6 +405,16 @@ public final class XPathToFeel {
         }
         return feelName(a.get(0).substring(1, a.get(0).length() - 1));
       }
+      if (name.equals("getActivityInstanceAttribute")) {
+        List<String> a = args();
+        String attr = a.isEmpty() ? "" : a.get(a.size() - 1);
+        String bare = attr.replace("\"", "");
+        if (java.util.Set.of("loopCounter", "numberOfInstances", "numberOfActiveInstances",
+            "numberOfCompletedInstances", "numberOfTerminatedInstances").contains(bare)) {
+          return bare; // Zeebe provides these variables inside multi-instance activities
+        }
+        throw new Unsupported("activity instance attribute " + attr + " has no Camunda equivalent");
+      }
       if (!prefix.isEmpty()
           && !prefix.equals("fn")
           && !prefix.equals("xp20")
@@ -441,6 +451,11 @@ public final class XPathToFeel {
       }
       return feelFn + "(" + String.join(", ", a) + ")";
     }
+  }
+
+  /** A variable name as FEEL (backtick-quoted when needed). */
+  public static String feelNameOf(String name) {
+    return feelName(name);
   }
 
   static String localName(String qname) {

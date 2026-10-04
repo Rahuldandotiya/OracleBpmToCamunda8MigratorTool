@@ -77,6 +77,7 @@ public final class DiagramGenerator {
     // 1. raw geometry in Oracle coordinates
     place(target, sourceById, 0, 0);
     placeUnpositioned(target);
+    narrowCrowdedActivities();
 
     List<LaneInfo> lanes = ProcessConverter.lanes(src);
     double minLeft = boxes.values().stream().mapToDouble(Box::x).min().orElse(0);
@@ -213,6 +214,41 @@ public final class DiagramGenerator {
     }
   }
 
+  /**
+   * Oracle draws activities smaller than Camunda's 100x80, so tightly drawn models (typically inside
+   * expanded sub-processes) would overlap their neighbours. Narrow such activities around their
+   * centre, keeping a small gap, but never below 70px.
+   */
+  private void narrowCrowdedActivities() {
+    final double gap = 8;
+    final double minWidth = 70;
+    for (var en : new ArrayList<>(boxes.entrySet())) {
+      String kind = kinds.get(en.getKey());
+      if (kind == null || isContainer(kind) || kind.endsWith("Event") || kind.endsWith("Gateway")) {
+        continue;
+      }
+      Box b = en.getValue();
+      double half = b.w() / 2;
+      for (var other : boxes.entrySet()) {
+        String ok = kinds.get(other.getKey());
+        Box o = other.getValue();
+        if (other.getKey().equals(en.getKey()) || ok == null || isContainer(ok)
+            || o.bottom() <= b.y() || o.y() >= b.bottom()) {
+          continue; // containers or not in the same row
+        }
+        if (o.cx() < b.cx()) {
+          half = Math.min(half, b.cx() - o.right() - gap);
+        } else if (o.cx() > b.cx()) {
+          half = Math.min(half, o.x() - b.cx() - gap);
+        }
+      }
+      double w = Math.max(minWidth, 2 * half);
+      if (w < b.w()) {
+        boxes.put(en.getKey(), new Box(b.cx() - w / 2, b.y(), w, b.h()));
+      }
+    }
+  }
+
   /** Boundary events sit on their host's bottom edge; other nodes without a position go in a row. */
   private void placeUnpositioned(Element container) {
     double nextX = boxes.values().stream().mapToDouble(Box::right).max().orElse(0) + 60;
@@ -303,7 +339,11 @@ public final class DiagramGenerator {
         continue;
       }
       Boolean expanded = isContainer(n.getLocalName()) ? Boolean.TRUE : null;
-      plane.appendChild(shape(n.getAttribute("id"), b, false, expanded));
+      Element sh = shape(n.getAttribute("id"), b, false, expanded);
+      if (n.getLocalName().equals("exclusiveGateway")) {
+        sh.setAttribute("isMarkerVisible", "true"); // draw the X like Oracle does
+      }
+      plane.appendChild(sh);
       if (isContainer(n.getLocalName())) {
         writeShapes(n, plane);
       }
@@ -366,6 +406,11 @@ public final class DiagramGenerator {
         pts.add(new double[] {midX, t.cy()});
         pts.add(new double[] {t.x(), t.cy()});
       }
+    } else if (t.cx() > s.cx() && Math.max(s.y(), t.y()) + 4 <= Math.min(s.bottom(), t.bottom()) - 4) {
+      // shapes touch or slightly overlap in the same row: keep a straight forward line
+      double y = Math.max(s.y(), t.y()) / 2 + Math.min(s.bottom(), t.bottom()) / 2;
+      pts.add(new double[] {s.cx() + s.w() / 2, y});
+      pts.add(new double[] {t.x(), y});
     } else if (t.y() >= s.bottom()) {
       // target below (overlapping horizontally)
       pts.add(new double[] {s.cx(), s.bottom()});

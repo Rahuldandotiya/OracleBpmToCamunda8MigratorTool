@@ -7,25 +7,32 @@ import io.github.rahuldandotiya.o2c8.composite.Composite.Component;
 import io.github.rahuldandotiya.o2c8.composite.Composite.Reference;
 import io.github.rahuldandotiya.o2c8.xml.Ns;
 import io.github.rahuldandotiya.o2c8.xml.XmlUtils;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
 /**
  * Follows an Oracle service call from the BPMN element to the composite:
- * <pre>service task → (partner, operation) → wire "Process/partner" → reference or component</pre>
+ * <pre>service task → (partner, operation) → wire "Process/…partner…" → reference or component</pre>
  *
- * <p>The partner and operation are taken, in order, from the BPMN {@code operationRef} (standard
- * {@code bpmn:interface/bpmn:operation}), from the Oracle conversation the element takes part in, or
- * from any Oracle extension attribute that names a service/reference and an operation.
+ * <p>Oracle BPM 12c records the partner in the process-level conversation the element takes part in:
+ * {@code service_call} ({@code serviceRef name="Services.Externals.X"}), {@code use_interface}
+ * ({@code referenceRef name="X"}) or {@code process_call} ({@code process="X"}); the operation is on
+ * the element's {@code Conversational} block or in {@code bpmn:operationRef}. The composite wires
+ * generated names such as {@code Process/Services.Externals.X.reference}; matching ignores those
+ * decorations. Inbound starts (JMS/email adapters wired into the process) resolve the other way.
  */
 public final class ServiceCallResolver {
 
-  private static final Pattern PARTNER_ATTR =
-      Pattern.compile("(?i)(service|serviceName|serviceRef|reference|referenceName|partnerLink|partner|serviceComponent)");
-  private static final Pattern OPERATION_ATTR = Pattern.compile("(?i)(operation|operationName|operationRef|wsdlOperation)");
+  private static final Pattern PARTNER_ATTR = Pattern.compile(
+      "(?i)(service|serviceName|serviceRef|reference|referenceName|partnerLink|partner|serviceComponent|process)");
+  private static final Pattern OPERATION_ATTR = Pattern.compile("(?i)(operation|operationName|wsdlOperation)");
+  private static final Set<String> REF_ELEMENTS = Set.of("serviceRef", "referenceRef", "interfaceRef");
 
   /** Where a call goes. */
   public sealed interface Target permits ToReference, ToComponent, NotFound {}
@@ -46,6 +53,12 @@ public final class ServiceCallResolver {
     }
   }
 
+  /** A start event fed by a composite entry point (inbound JMS/email/file adapter, SOAP endpoint). */
+  public record InboundStart(Composite.Service service, String operation) {}
+
+  /** What the Oracle element says about its partner. */
+  private record Partner(List<String> candidates, String operation, String via, String conversationType) {}
+
   private final Composite composite;
   private final String componentName;
 
@@ -62,23 +75,26 @@ public final class ServiceCallResolver {
     return componentName;
   }
 
-  /** Resolves the call made by an Oracle element (service/send/receive task, message event). */
+  /** Resolves the outbound call made by an Oracle element (service/send/receive task, message event). */
   public Optional<ServiceCall> resolve(Element source) {
-    String[] fromOpRef = fromOperationRef(source);
-    String[] fromConv = fromConversation(source);
-    String[] fromExt = fromExtensionAttributes(source);
-    String partner = first(fromOpRef[0], fromConv[0], fromExt[0]);
-    String operation = first(fromOpRef[1], fromConv[1], fromExt[1]);
-    String via = fromOpRef[0] != null ? "operationRef" : fromConv[0] != null ? "Oracle conversation"
-        : fromExt[0] != null ? "Oracle extension" : null;
-    if (partner == null) {
+    Partner p = partner(source);
+    if (p.candidates().isEmpty() || "define_interface".equals(p.conversationType())) {
       return Optional.empty();
     }
-    return Optional.of(new ServiceCall(partner, operation, via, target(partner)));
+    return Optional.of(new ServiceCall(display(p.candidates().get(0)), p.operation(), p.via(), target(p.candidates())));
   }
 
-  private Target target(String partner) {
-    Optional<String> wired = componentName == null ? Optional.empty() : composite.wireTarget(componentName, partner);
+  /** Resolves the composite entry point that starts the process through this (start) event. */
+  public Optional<InboundStart> resolveInbound(Element startEvent) {
+    Partner p = partner(startEvent);
+    if (p.candidates().isEmpty() || componentName == null) {
+      return Optional.empty();
+    }
+    return composite.inboundService(componentName, p.candidates()).map(s -> new InboundStart(s, p.operation()));
+  }
+
+  private Target target(List<String> candidates) {
+    Optional<String> wired = componentName == null ? Optional.empty() : composite.wireTarget(componentName, candidates);
     if (wired.isPresent()) {
       String t = wired.get();
       int slash = t.indexOf('/');
@@ -90,29 +106,102 @@ public final class ServiceCallResolver {
       return composite.component(comp).<Target>map(c -> new ToComponent(c, t.substring(slash + 1)))
           .orElse(new NotFound("wire target component '" + comp + "' not found"));
     }
-    return composite.reference(partner).<Target>map(ToReference::new)
-        .or(() -> composite.component(partner).map(c -> new ToComponent(c, null)))
-        .orElse(new NotFound("no wire from " + componentName + "/" + partner + " and no reference named " + partner));
+    for (String c : candidates) {
+      String name = display(c);
+      Optional<Target> t = composite.reference(name).<Target>map(ToReference::new)
+          .or(() -> composite.component(name).map(x -> new ToComponent(x, null)));
+      if (t.isPresent()) {
+        return t.get();
+      }
+    }
+    return new NotFound("no wire from " + componentName + " to " + display(candidates.get(0))
+        + " and no reference or component with that name");
   }
 
-  /** operationRef="ns:opId" → bpmn:operation[@id] inside bpmn:interface. */
+  // ------------------------------------------------------------------ partner extraction
+
+  private static Partner partner(Element source) {
+    Set<String> candidates = new LinkedHashSet<>();
+    String operation = null;
+    String via = null;
+    String convType = null;
+
+    // 1. Oracle conversation (the normal 12c encoding)
+    Element ext = oracleExt(source);
+    if (ext != null) {
+      for (Element conv : children(ext, Ns.ORACLE, "Conversational")) {
+        String op = attrMatching(conv, OPERATION_ATTR);
+        operation = operation == null ? op : operation;
+        Element process = processOf(source);
+        String convId = conv.getAttribute("conversation");
+        Element def = process == null ? null : descendants(process, Ns.ORACLE, "Conversation").stream()
+            .filter(c -> convId.equals(c.getAttribute("id"))).findFirst().orElse(null);
+        if (def != null) {
+          convType = def.getAttribute("type");
+          for (Element d : descendants(def, Ns.ORACLE, null)) {
+            if (REF_ELEMENTS.contains(d.getLocalName()) && !d.getAttribute("name").isBlank()) {
+              candidates.add(d.getAttribute("name"));
+            }
+          }
+          String attr = attrMatching(def, PARTNER_ATTR);
+          if (attr != null) {
+            candidates.add(attr);
+          }
+          if (!def.getAttribute("name").isBlank()) {
+            candidates.add(def.getAttribute("name"));
+          }
+          via = "Oracle " + convType + " conversation";
+        }
+      }
+    }
+    // 2. standard BPMN operationRef (attribute or child element) and messageRef
+    String[] fromOpRef = fromOperationRef(source);
+    if (fromOpRef[0] != null) {
+      candidates.add(fromOpRef[0]);
+      via = via == null ? "operationRef" : via;
+    }
+    operation = operation == null ? fromOpRef[1] : operation;
+    for (Element d : children(source, Ns.BPMN, "messageEventDefinition")) {
+      String ref = XmlUtils.attr(d, "messageRef");
+      if (ref != null && ref.contains(".")) {
+        candidates.add(local(ref));
+      }
+    }
+    // 3. any Oracle extension attribute naming a partner
+    if (candidates.isEmpty() && ext != null) {
+      String attr = attrMatching(ext, PARTNER_ATTR);
+      if (attr != null) {
+        candidates.add(attr);
+        via = "Oracle extension";
+      }
+      operation = operation == null ? attrMatching(ext, OPERATION_ATTR) : operation;
+    }
+    return new Partner(new ArrayList<>(candidates), operation, via, convType);
+  }
+
+  /** operationRef (attribute or child element, on the element or its event definition). */
   private static String[] fromOperationRef(Element source) {
     String ref = XmlUtils.attr(source, "operationRef");
-    if (ref == null) {
-      for (Element d : children(source, Ns.BPMN, null)) {
-        if (d.getLocalName().endsWith("EventDefinition") && XmlUtils.attr(d, "operationRef") != null) {
-          ref = d.getAttribute("operationRef");
-        }
+    List<Element> holders = new ArrayList<>();
+    holders.add(source);
+    holders.addAll(children(source, Ns.BPMN, "messageEventDefinition"));
+    for (Element h : holders) {
+      if (ref == null) {
+        ref = XmlUtils.attr(h, "operationRef");
+      }
+      if (ref == null) {
+        ref = XmlUtils.child(h, Ns.BPMN, "operationRef").map(e -> e.getTextContent().trim()).filter(t -> !t.isEmpty())
+            .orElse(null);
       }
     }
     if (ref == null) {
       return new String[2];
     }
-    String id = ref.contains(":") ? ref.substring(ref.indexOf(':') + 1) : ref;
+    String id = local(ref);
     Element defs = source.getOwnerDocument().getDocumentElement();
     for (Element iface : children(defs, Ns.BPMN, "interface")) {
       for (Element op : children(iface, Ns.BPMN, "operation")) {
-        if (id.equals(op.getAttribute("id"))) {
+        if (id.equals(op.getAttribute("id")) || id.equals(op.getAttribute("name"))) {
           String partner = XmlUtils.attr(iface, "name");
           if (partner == null) {
             partner = local(XmlUtils.attr(iface, "implementationRef"));
@@ -121,41 +210,7 @@ public final class ServiceCallResolver {
         }
       }
     }
-    return new String[2];
-  }
-
-  /** Oracle: element's Conversational@conversation → process-level Conversation definition. */
-  private static String[] fromConversation(Element source) {
-    Element ext = oracleExt(source);
-    if (ext == null) {
-      return new String[2];
-    }
-    for (Element conv : children(ext, Ns.ORACLE, "Conversational")) {
-      String convId = conv.getAttribute("conversation");
-      String op = attrMatching(conv, OPERATION_ATTR, true);
-      Element process = processOf(source);
-      Element definition = process == null ? null : descendants(process, Ns.ORACLE, "Conversation").stream()
-          .filter(c -> convId.equals(c.getAttribute("id"))).findFirst().orElse(null);
-      if (definition != null && "define_interface".equals(definition.getAttribute("type"))) {
-        continue; // the process's own interface, not an outbound call
-      }
-      String partner = definition == null ? null : attrMatching(definition, PARTNER_ATTR, true);
-      if (partner == null) {
-        partner = attrMatching(conv, PARTNER_ATTR, true);
-      }
-      if (partner != null) {
-        return new String[] {partner, op};
-      }
-    }
-    return new String[2];
-  }
-
-  private static String[] fromExtensionAttributes(Element source) {
-    Element ext = oracleExt(source);
-    if (ext == null) {
-      return new String[2];
-    }
-    return new String[] {attrMatching(ext, PARTNER_ATTR, true), attrMatching(ext, OPERATION_ATTR, true)};
+    return new String[] {null, id}; // operation name only
   }
 
   private static Element oracleExt(Element source) {
@@ -171,13 +226,11 @@ public final class ServiceCallResolver {
     return (Element) n;
   }
 
-  /** First attribute (on e or, if deep, its descendants) whose local name matches, skipping FeatureSet noise. */
-  private static String attrMatching(Element e, Pattern p, boolean deep) {
-    List<Element> all = new java.util.ArrayList<>();
+  /** First attribute (on e or its descendants) whose local name matches, skipping FeatureSet noise. */
+  private static String attrMatching(Element e, Pattern p) {
+    List<Element> all = new ArrayList<>();
     all.add(e);
-    if (deep) {
-      all.addAll(descendants(e, null, null));
-    }
+    all.addAll(descendants(e, null, null));
     for (Element x : all) {
       if (x.getLocalName().contains("Feature") || "extensionElements".equals(x.getLocalName())) {
         continue;
@@ -194,12 +247,26 @@ public final class ServiceCallResolver {
     return null;
   }
 
+  /** "Services.Externals.FraudCheck" → "FraudCheck"; other names unchanged. */
+  static String display(String partner) {
+    String s = partner;
+    for (String prefix : new String[] {"Services.Externals.", "References.Externals."}) {
+      if (s.startsWith(prefix)) {
+        s = s.substring(prefix.length());
+      }
+    }
+    return s;
+  }
+
   private static String local(String qname) {
     if (qname == null) {
       return null;
     }
-    int i = qname.lastIndexOf(':');
-    return i >= 0 && !qname.contains("://") ? qname.substring(i + 1) : qname;
+    if (qname.contains("://")) {
+      return qname;
+    }
+    int i = qname.indexOf(':');
+    return i >= 0 ? qname.substring(i + 1) : qname;
   }
 
   private static String first(String... values) {

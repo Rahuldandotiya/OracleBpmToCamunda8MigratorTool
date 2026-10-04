@@ -110,6 +110,10 @@ public final class ConversionContext {
     return target.createElementNS(Ns.ZEEBE, "zeebe:" + localName);
   }
 
+  public boolean isUsed(String id) {
+    return ids.contains(id);
+  }
+
   /** Registers an id as used; returns it unchanged. */
   public String claimId(String id) {
     ids.add(id);
@@ -249,6 +253,11 @@ public final class ConversionContext {
           s.setAttribute("correlationKey", correlationKey);
           return s;
         });
+  }
+
+  /** Removes a correlation key request (e.g. the message now only starts instances). */
+  public void dropSubscription(String messageId) {
+    subscriptions.remove(messageId);
   }
 
   Map<String, Element> subscriptions() {
