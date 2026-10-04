@@ -6,7 +6,7 @@
 
   <groupId>io.github.rahuldandotiya</groupId>
   <artifactId>oracle-bpm-to-camunda8-parent</artifactId>
-  <version>0.2.0-SNAPSHOT</version>
+  <version>0.3.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Oracle BPM to Camunda 8 Migrator</name>

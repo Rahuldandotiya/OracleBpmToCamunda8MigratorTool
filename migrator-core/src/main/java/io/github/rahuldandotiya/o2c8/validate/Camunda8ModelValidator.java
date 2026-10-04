@@ -109,6 +109,18 @@ public final class Camunda8ModelValidator {
       if (!di.contains(id)) {
         issues.add("Element " + id + " has no diagram shape");
       }
+      if (kind.equals("boundaryEvent")) {
+        Element host = byId.get(n.getAttribute("attachedToRef"));
+        if (host == null || host.getParentNode() != c) {
+          issues.add("Boundary event " + id + " is attached to unknown activity '" + n.getAttribute("attachedToRef") + "'");
+        }
+      }
+      if (n.hasAttribute("default")) {
+        Element f = byId.get(n.getAttribute("default"));
+        if (f == null || !f.getLocalName().equals("sequenceFlow") || !id.equals(f.getAttribute("sourceRef"))) {
+          issues.add("Default flow '" + n.getAttribute("default") + "' of " + id + " is not one of its outgoing flows");
+        }
+      }
       if (JOB_TASKS.contains(kind) && zeebe(n, "taskDefinition") == null && zeebe(n, "calledDecision") == null
           && zeebe(n, "script") == null) {
         issues.add(kind + " " + id + " has no zeebe:taskDefinition");
@@ -132,6 +144,13 @@ public final class Camunda8ModelValidator {
         checkContainer(n, byId, di, issues);
       }
     }
+    for (Element ls : children(c, Ns.BPMN, "laneSet")) {
+      for (Element ref : descendants(ls, Ns.BPMN, "flowNodeRef")) {
+        if (!byId.containsKey(ref.getTextContent().trim())) {
+          issues.add("Lane refers to unknown element '" + ref.getTextContent().trim() + "'");
+        }
+      }
+    }
     if (children(c, Ns.BPMN, "startEvent").isEmpty() && c.getLocalName().equals("process")) {
       issues.add("Process " + scope + " has no start event");
     }
@@ -146,20 +165,25 @@ public final class Camunda8ModelValidator {
       }
       switch (dk) {
         case "messageEventDefinition" -> {
-          Element m = byId.get(d.getAttribute("messageRef"));
-          if (m == null) {
-            issues.add("Message event " + id + " references no message");
-          } else if (kind.equals("intermediateThrowEvent") || kind.equals("endEvent")) {
+          String ref = d.getAttribute("messageRef");
+          Element m = ref.isBlank() ? null : byId.get(ref);
+          boolean throwing = kind.equals("intermediateThrowEvent") || kind.equals("endEvent");
+          if (!ref.isBlank() && m == null) {
+            issues.add("Message event " + id + " references unknown message '" + ref + "'");
+          }
+          if (throwing) {
+            // Zeebe runs message throw events as jobs; a message reference is optional
             if (zeebe(n, "taskDefinition") == null) {
               issues.add("Message throw event " + id + " needs a zeebe:taskDefinition");
             }
-          } else if (!kind.equals("startEvent")) {
-            boolean hasKey = child(m, Ns.BPMN, "extensionElements")
-                .flatMap(x -> child(x, Ns.ZEEBE, "subscription"))
-                .map(s -> !s.getAttribute("correlationKey").isBlank()).orElse(false);
-            if (!hasKey) {
-              issues.add("Message catch " + id + " needs a correlation key on its message");
+            if (m != null && !hasCorrelationKey(m)) {
+              issues.add("Message throw event " + id + " references message '" + ref
+                  + "' without a zeebe:subscription; remove the reference or add a correlation key");
             }
+          } else if (m == null) {
+            issues.add("Message event " + id + " references no message");
+          } else if (!kind.equals("startEvent") && !hasCorrelationKey(m)) {
+            issues.add("Message catch " + id + " needs a correlation key on its message");
           }
         }
         case "signalEventDefinition" -> {
@@ -176,8 +200,19 @@ public final class Camunda8ModelValidator {
           }
         }
         case "timerEventDefinition" -> {
-          for (Element t : children(d, Ns.BPMN, null)) {
+          List<Element> props = children(d, Ns.BPMN, null).stream()
+              .filter(t -> t.getLocalName().startsWith("time")).toList();
+          if (props.isEmpty()) {
+            issues.add("Timer event " + id + " has no timeDate, timeDuration or timeCycle");
+          }
+          Set<String> allowed = io.github.rahuldandotiya.o2c8.convert.elements.EventConverter
+              .allowedTimerProperties(n, (Element) n.getParentNode());
+          for (Element t : props) {
             String v = t.getTextContent().trim();
+            if (!allowed.contains(t.getLocalName())) {
+              issues.add("Timer " + t.getLocalName() + " is not allowed on " + kind + " " + id + " (allowed: "
+                  + String.join(", ", allowed) + ")");
+            }
             boolean ok = switch (t.getLocalName()) {
               case "timeCycle" -> v.startsWith("=") || v.matches("^R\\d*/.+") || v.split("\\s+").length >= 5;
               case "timeDuration" -> v.startsWith("=") || v.startsWith("P");
@@ -193,6 +228,12 @@ public final class Camunda8ModelValidator {
         default -> issues.add("Event definition " + dk + " on " + id + " is not supported");
       }
     }
+  }
+
+  private static boolean hasCorrelationKey(Element message) {
+    return child(message, Ns.BPMN, "extensionElements")
+        .flatMap(x -> child(x, Ns.ZEEBE, "subscription"))
+        .map(s -> !s.getAttribute("correlationKey").isBlank()).orElse(false);
   }
 
   private static Element zeebe(Element n, String localName) {

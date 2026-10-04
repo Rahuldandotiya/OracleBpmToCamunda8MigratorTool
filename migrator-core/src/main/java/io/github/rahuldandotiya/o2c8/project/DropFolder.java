@@ -36,6 +36,7 @@ public final class DropFolder {
   private final List<ProcessFile> processes = new ArrayList<>();
   private final List<Composite> composites = new ArrayList<>();
   private final List<String> warnings = new ArrayList<>();
+  private final List<Unreadable> unreadable = new ArrayList<>();
   private final List<Path> tempDirs = new ArrayList<>();
 
   private DropFolder(Path root) {
@@ -92,6 +93,14 @@ public final class DropFolder {
     return warnings;
   }
 
+  /** A .bpmn file that could not be read (broken XML, unsafe content ...), with the reason. */
+  public record Unreadable(String displayPath, String reason) {}
+
+  /** Process files that were found but could not be parsed; reported as failed conversions. */
+  public List<Unreadable> unreadable() {
+    return unreadable;
+  }
+
   /** The composite whose folder is the closest ancestor of this process file. */
   public Optional<Composite> compositeFor(ProcessFile f) {
     return composites.stream()
@@ -134,8 +143,15 @@ public final class DropFolder {
         : groupPrefix;
     try {
       if (lower.endsWith(".bpmn") || lower.endsWith(".bpmn2")) {
-        String display = groupPrefix.isEmpty() ? rel.toString() : groupPrefix + "/" + rel;
-        classify(f, display.replace('\\', '/'), group).ifPresent(processes::add);
+        String display = (groupPrefix.isEmpty() ? rel.toString() : groupPrefix + "/" + rel).replace('\\', '/');
+        try {
+          classify(f, display, group).ifPresent(processes::add);
+        } catch (IOException | RuntimeException e) {
+          String m = String.valueOf(e.getMessage());
+          unreadable.add(new Unreadable(display, m.contains("DOCTYPE")
+              ? "the file contains a DOCTYPE declaration, which is refused for security (XML external entity attacks)"
+              : "the file could not be read as BPMN XML: " + m.replace("Not a well-formed XML document: ", "")));
+        }
       } else if (lower.equals("composite.xml")) {
         composites.add(CompositeReader.read(f));
       } else if (lower.endsWith(".zip") || lower.endsWith(".sar") || lower.endsWith(".jar")) {

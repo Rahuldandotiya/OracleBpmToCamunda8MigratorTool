@@ -4,6 +4,9 @@ Drop **finished migrations** here: Oracle processes together with the Camunda 8 
 completed for them. `oracle2c8 migrate` learns from them and applies the same decisions to new
 processes (service call settings, forms, candidate groups, variable names, job type naming ...).
 
+You can also upload finished migrations in the web UI (`oracle2c8 serve`) and click
+**Save to knowledge base**: they are copied into a sub-folder here.
+
 Anything goes, in any folder structure:
 
 - loose Oracle `.bpmn` files,

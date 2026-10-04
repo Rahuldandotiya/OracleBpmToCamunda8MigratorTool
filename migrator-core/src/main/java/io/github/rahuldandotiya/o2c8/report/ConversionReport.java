@@ -52,7 +52,18 @@ public final class ConversionReport {
   /** A Camunda secret the converted models expect, with the value(s) found in the Oracle project. */
   public record Secret(String name, String value, String reference, Map<String, String> environmentValues) {}
 
+  /** Outcome of converting one file. */
+  public enum Status {
+    /** Converted; the model passed all checks. */
+    CONVERTED,
+    /** Converted, but the model has validation issues to fix before deployment. */
+    CONVERTED_WITH_ISSUES,
+    /** No model was produced; {@link #failure()} says why. */
+    FAILED
+  }
+
   private final String sourceName;
+  private String failure;
   private final List<Entry> entries = new ArrayList<>();
   private final List<String> validationIssues = new ArrayList<>();
   private final Map<String, Secret> secrets = new LinkedHashMap<>();
@@ -93,8 +104,27 @@ public final class ConversionReport {
         environmentValues == null ? Map.of() : Map.copyOf(environmentValues)));
   }
 
+  /** Report for a file that could not be converted at all. */
+  public static ConversionReport failed(String sourceName, String reason) {
+    ConversionReport r = new ConversionReport(sourceName);
+    r.failure = reason == null || reason.isBlank() ? "unknown error" : reason;
+    return r;
+  }
+
   public String sourceName() {
     return sourceName;
+  }
+
+  /** Why the file could not be converted, or null when a model was produced. */
+  public String failure() {
+    return failure;
+  }
+
+  public Status status() {
+    if (failure != null) {
+      return Status.FAILED;
+    }
+    return validationIssues.isEmpty() ? Status.CONVERTED : Status.CONVERTED_WITH_ISSUES;
   }
 
   public List<Entry> entries() {
@@ -128,6 +158,9 @@ public final class ConversionReport {
 
   /** Share of converted elements needing no human work, 0..100. */
   public int automationPercent() {
+    if (failure != null) {
+      return 0;
+    }
     Map<Level, Integer> c = elementCounts();
     int total = c.values().stream().mapToInt(Integer::intValue).sum();
     return total == 0 ? 100 : Math.round(100f * c.get(Level.AUTO) / total);

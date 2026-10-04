@@ -1,0 +1,13 @@
+{
+  "name": "oracle2c8-verify-bpmn",
+  "private": true,
+  "description": "Checks converted models the way Camunda Modeler does: bpmn-moddle import with the Zeebe extension, then Camunda's own lint rules.",
+  "type": "module",
+  "bin": { "verify-bpmn": "verify.mjs" },
+  "dependencies": {
+    "bpmn-moddle": "^9.0.1",
+    "bpmnlint": "^11.6.0",
+    "bpmnlint-plugin-camunda-compat": "^2.40.0",
+    "zeebe-bpmn-moddle": "^1.11.0"
+  }
+}
