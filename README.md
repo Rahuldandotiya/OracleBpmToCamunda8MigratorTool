@@ -178,33 +178,55 @@ revision) instead of creating duplicates. SaaS and Self-Managed are both support
 1. Create an API client with Web Modeler access (permissions **Create**, **Read** and **Update**):
    - **SaaS:** Console > Organization > Administration API > Create new credentials.
    - **Self-Managed:** Identity > Applications > add an M2M application, then grant Web Modeler API access.
-2. Copy the template and fill in the credentials. `application.properties` is git-ignored.
+2. Set the credentials as environment variables. `application.properties` reads every setting from
+   the environment, so it contains no secrets and is committed with the project.
 
    ```bash
-   cp application.properties.example application.properties
+   export CAMUNDA_WEBMODELER_MODE=saas                  # or self-managed
+   export CAMUNDA_WEBMODELER_CLIENT_ID=<client id>
+   export CAMUNDA_WEBMODELER_CLIENT_SECRET=<client secret>
+   export CAMUNDA_WEBMODELER_PROJECT_NAME="Oracle BPM migration"   # found or created
+   # export CAMUNDA_WEBMODELER_PROJECT_ID=<existing project id>    # alternative to the name
+   java -jar migrator-cli/target/oracle2c8.jar serve
    ```
 
-   ```properties
-   camunda.webmodeler.mode=saas                 # or self-managed
-   camunda.webmodeler.client-id=<client id>
-   camunda.webmodeler.client-secret=${CAMUNDA_WEBMODELER_SECRET}   # or the secret itself
-   camunda.webmodeler.project-name=Oracle BPM migration           # found or created
-   # camunda.webmodeler.project-id=<existing project id>          # alternative to the name
-   ```
+   For Self-Managed, also set `CAMUNDA_WEBMODELER_API_URL` and `CAMUNDA_WEBMODELER_TOKEN_URL` and,
+   if your identity provider needs them, `CAMUNDA_WEBMODELER_AUDIENCE` or `CAMUNDA_WEBMODELER_SCOPE`.
+   The comments in [`application.properties`](application.properties) list the defaults for both modes.
+3. Open **Settings** in the UI and click **Test connection**.
 
-   For Self-Managed, also set `camunda.webmodeler.api-url`, `token-url` and, if needed, `audience`
-   or `scope`. The template lists the defaults for both modes.
-3. Restart `oracle2c8 serve`, open **Settings** and click **Test connection**.
+### Settings and environment variables
+
+Every setting in [`application.properties`](application.properties) is written as
+`${ENVIRONMENT_VARIABLE:default}`. The variable name is the key in upper case, with `.` and `-`
+replaced by `_`. That rule also applies when the jar runs without the file, for example from
+another folder or in a container.
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `SERVER_HOST` / `SERVER_PORT` | `127.0.0.1` / `8080` | Web UI address |
+| `SERVER_MAX_UPLOAD_MB` / `SERVER_MAX_FILES` | `200` / `5000` | Upload limits per session |
+| `SERVER_WORKSPACE_TTL_MINUTES` | `240` | Idle sessions are deleted after this time |
+| `MIGRATOR_KNOWLEDGE_BASE_DIR` | `knowledge-base` | Folder with finished migrations |
+| `MIGRATOR_PLATFORM_VERSION` / `MIGRATOR_USER_TASKS` | `8.6.0` / `camunda` | Conversion defaults in the UI |
+| `CAMUNDA_WEBMODELER_MODE` | `saas` | `saas` or `self-managed` |
+| `CAMUNDA_WEBMODELER_CLIENT_ID` / `_CLIENT_SECRET` | (empty) | API client credentials |
+| `CAMUNDA_WEBMODELER_PROJECT_ID` / `_PROJECT_NAME` | (empty) / `Oracle BPM migration` | Target project |
+| `CAMUNDA_WEBMODELER_API_URL` / `_TOKEN_URL` / `_AUDIENCE` / `_SCOPE` | per mode | Endpoints and OAuth settings |
+| `CAMUNDA_WEBMODELER_TIMEOUT_SECONDS` | `30` | HTTP timeout |
+| `ANALYZE_HOURS_<KIND>` (e.g. `ANALYZE_HOURS_FORM`) | see [Effort estimate](#effort-estimate-analyze) | Hour weights |
+
+To keep settings in a different file, start with `--config <file>`.
 
 Every problem produces a message that says what to fix:
 
 | Situation | Message |
 | --- | --- |
-| No credentials configured | Web Modeler is not configured: set `camunda.webmodeler.client-id` and `client-secret` in application.properties |
+| No credentials configured | Web Modeler is not configured: set `CAMUNDA_WEBMODELER_CLIENT_ID` and `CAMUNDA_WEBMODELER_CLIENT_SECRET` |
 | Server not reachable (DNS, refused, timeout, VPN) | Cannot reach `<url>`: the host name is unknown / the connection was refused / timed out |
 | Wrong client id or secret | Camunda rejected the credentials, plus where the client is created for SaaS or Self-Managed |
 | Client lacks Web Modeler permissions | The API client is not allowed to do this: give it Create, Read and Update |
-| Project id not found | Web Modeler could not find the project: check `camunda.webmodeler.project-id` |
+| Project id not found | Web Modeler could not find the project: check `CAMUNDA_WEBMODELER_PROJECT_ID` |
 
 Note: Camunda has deprecated Web Modeler API v1 in 8.10 (removal planned for 8.12) in favour of a
 new API. The client is isolated in one class (`WebModelerClient`), so it can be moved over in one place.
@@ -291,7 +313,8 @@ with an hour weight per kind:
 | File that could not be converted | 16 |
 | Testing and deployment, per process | 4 |
 
-Change the weights with `analyze.hours.*` in `application.properties`. The result is a planning aid
+Change the weights with environment variables such as `ANALYZE_HOURS_FORM=3`
+(`analyze.hours.*` in `application.properties`). The result is a planning aid
 for scoping a migration, not a quote. The web UI shows the same estimate (**Analyze effort**).
 
 ## How the output is checked
@@ -418,7 +441,7 @@ tools/verify-bpmn/    Camunda Modeler import + Camunda lint checks (Node, used i
 samples/oracle-bpm-12c/
   loan-origination/   real Oracle BPM 12c sample project (MIT, see its README)
 images/               Oracle vs Camunda 8 renderings of the sample, UI screenshots
-application.properties.example   settings template for serve / analyze
+application.properties  settings for serve / analyze, every value read from the environment
 knowledge-base/       drop folder: finished migrations (git-ignored)
 processToMigrate/     drop folder: what to convert (git-ignored)
 ```

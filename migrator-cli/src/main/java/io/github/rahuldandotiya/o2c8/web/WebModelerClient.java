@@ -43,7 +43,7 @@ public final class WebModelerClient {
         case "saas", "cloud" -> Mode.SAAS;
         case "self-managed", "selfmanaged", "sm" -> Mode.SELF_MANAGED;
         default -> throw new WebModelerException(WebModelerException.Kind.NOT_CONFIGURED,
-            "camunda.webmodeler.mode must be 'saas' or 'self-managed', got '" + m + "'.");
+            "camunda.webmodeler.mode (CAMUNDA_WEBMODELER_MODE) must be 'saas' or 'self-managed', got '" + m + "'.");
       };
       boolean saas = mode == Mode.SAAS;
       return new Settings(mode,
@@ -189,9 +189,9 @@ public final class WebModelerClient {
   private void requireConfigured() {
     if (!settings.configured()) {
       throw new WebModelerException(WebModelerException.Kind.NOT_CONFIGURED,
-          "Web Modeler is not configured. Set camunda.webmodeler.client-id and camunda.webmodeler.client-secret "
-              + "(and camunda.webmodeler.mode=saas or self-managed) in application.properties, then restart "
-              + "the server. See application.properties.example.");
+          "Web Modeler is not configured. Set the environment variables CAMUNDA_WEBMODELER_CLIENT_ID and "
+              + "CAMUNDA_WEBMODELER_CLIENT_SECRET (and CAMUNDA_WEBMODELER_MODE=saas or self-managed), then restart "
+              + "the server. They are read through application.properties (camunda.webmodeler.*).");
     }
   }
 
@@ -212,7 +212,7 @@ public final class WebModelerClient {
       token = null;
       throw new WebModelerException(WebModelerException.Kind.AUTHENTICATION,
           "Web Modeler rejected the access token (HTTP 401). Check that the API client belongs to the right "
-              + "organization or Identity realm, and that camunda.webmodeler.audience is correct.");
+              + "organization or Identity realm, and that CAMUNDA_WEBMODELER_AUDIENCE is correct.");
     }
     if (code == 403) {
       throw new WebModelerException(WebModelerException.Kind.PERMISSION,
@@ -223,7 +223,7 @@ public final class WebModelerClient {
       throw new WebModelerException(WebModelerException.Kind.NOT_FOUND,
           "Web Modeler could not find " + path + " (HTTP 404)."
               + (path.contains("/projects/") && settings.projectId() != null
-                  ? " Check camunda.webmodeler.project-id." : " Check camunda.webmodeler.api-url."));
+                  ? " Check CAMUNDA_WEBMODELER_PROJECT_ID." : " Check CAMUNDA_WEBMODELER_API_URL."));
     }
     if (code == 409) {
       throw new WebModelerException(WebModelerException.Kind.CONFLICT,
@@ -261,7 +261,7 @@ public final class WebModelerClient {
     if (r.statusCode() == 400 || r.statusCode() == 401 || r.statusCode() == 403) {
       throw new WebModelerException(WebModelerException.Kind.AUTHENTICATION,
           "Camunda rejected the credentials (HTTP " + r.statusCode() + " from " + settings.tokenUrl() + "). "
-              + "Check camunda.webmodeler.client-id and client-secret" + (settings.mode() == Mode.SAAS
+              + "Check CAMUNDA_WEBMODELER_CLIENT_ID and CAMUNDA_WEBMODELER_CLIENT_SECRET" + (settings.mode() == Mode.SAAS
                   ? ", and that the client was created under Console > Organization > Administration API with Web Modeler access."
                   : ", and that the application exists in Identity with Web Modeler API permissions.")
               + " " + apiMessage(r.body()));
@@ -276,12 +276,12 @@ public final class WebModelerClient {
       t = object(Json.parse(r.body()));
     } catch (RuntimeException e) {
       throw new WebModelerException(WebModelerException.Kind.AUTHENTICATION,
-          "The token endpoint " + settings.tokenUrl() + " did not return JSON. Check camunda.webmodeler.token-url.");
+          "The token endpoint " + settings.tokenUrl() + " did not return JSON. Check CAMUNDA_WEBMODELER_TOKEN_URL.");
     }
     token = str(t.get("access_token"));
     if (token == null) {
       throw new WebModelerException(WebModelerException.Kind.AUTHENTICATION,
-          "The token endpoint returned no access_token. Check camunda.webmodeler.token-url and audience.");
+          "The token endpoint returned no access_token. Check CAMUNDA_WEBMODELER_TOKEN_URL and CAMUNDA_WEBMODELER_AUDIENCE.");
     }
     long expiresIn = t.get("expires_in") instanceof Number n ? n.longValue() : 300;
     tokenExpiry = Instant.now().plusSeconds(Math.max(30, expiresIn - 30));
@@ -312,7 +312,7 @@ public final class WebModelerClient {
 
   private WebModelerException unreachable(String target, String why) {
     return new WebModelerException(WebModelerException.Kind.UNREACHABLE,
-        "Cannot reach " + target + ": " + why + ". Check camunda.webmodeler.api-url / token-url, your network, VPN "
+        "Cannot reach " + target + ": " + why + ". Check CAMUNDA_WEBMODELER_API_URL / CAMUNDA_WEBMODELER_TOKEN_URL, your network, VPN "
             + "or proxy settings.");
   }
 
